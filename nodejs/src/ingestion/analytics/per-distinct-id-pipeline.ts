@@ -24,6 +24,7 @@ export type PerDistinctIdPipelineInput = EventSubpipelineInput &
 export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions & {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+        CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
     teamManager: TeamManager

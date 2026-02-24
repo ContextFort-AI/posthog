@@ -58,6 +58,7 @@ export interface JoinedIngestionPipelineConfig {
     // Per-distinct-id config
     perDistinctIdOptions: EventPipelineRunnerOptions & {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+        CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
     teamManager: TeamManager

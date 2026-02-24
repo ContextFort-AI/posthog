@@ -235,6 +235,7 @@ export class IngestionConsumer {
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             perDistinctIdOptions: {
                 CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
