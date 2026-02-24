@@ -159,7 +159,7 @@ const BRANCHING_ACTION_TYPES = ['conditional_branch', 'random_cohort_branch', 'w
  * we remove a branching node its branch children are already gone and only
  * the continue edge remains for reconnection.
  */
-function stripDeletedActions(
+export function stripDeletedActions(
     actions: HogFlowAction[],
     edges: HogFlow['edges'],
     deletedIds: Set<string>
