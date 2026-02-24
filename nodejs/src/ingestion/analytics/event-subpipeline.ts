@@ -21,7 +21,7 @@ import { createProcessAiEventStep } from '../event-processing/process-ai-event-s
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../event-processing/process-persons-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
-import { TopHogWrapper, count, timer } from '../pipelines/extensions/tophog'
+import { TopHogWrapper, sum, timer } from '../pipelines/extensions/tophog'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -82,15 +82,21 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
             })
         )
-        .pipe(createCreateEventStep())
+        .pipe(createCreateEventStep(options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC))
         .pipe(
             topHog(
                 createEmitEventStep({
                     kafkaProducer,
-                    clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                     groupId,
                 }),
-                [count('emitted_events', (input) => ({ team_id: String(input.eventToEmit.team_id) }))]
+                // team_id is the same for all events in the list
+                [
+                    sum(
+                        'emitted_events',
+                        (input) => ({ team_id: String(input.teamId) }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                ]
             )
         )
 }

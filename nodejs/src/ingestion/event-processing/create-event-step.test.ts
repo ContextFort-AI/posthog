@@ -37,7 +37,7 @@ describe('create-event-step', () => {
 
     describe('createCreateEventStep', () => {
         it('should create event with processPerson=true', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep('clickhouse_events_json')
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -53,17 +53,15 @@ describe('create-event-step', () => {
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(value.eventToEmit.uuid).toBe('event-uuid-456')
-                expect(value.eventToEmit.event).toBe('$pageview')
-                expect(value.eventToEmit.team_id).toBe(1)
-                expect(value.eventToEmit.distinct_id).toBe('distinct-id-789')
-                expect(value.eventToEmit.person_id).toBe('person-uuid-123')
-                expect(value.eventToEmit.person_mode).toBe('full')
-                expect(parseJSON(value.eventToEmit.person_properties || '{}')).toEqual({
+                expect(value.eventsToEmit).toHaveLength(1)
+                const eventToEmit = value.eventsToEmit[0].event
+                expect(eventToEmit.uuid).toBe('event-uuid-456')
+                expect(eventToEmit.event).toBe('$pageview')
+                expect(eventToEmit.team_id).toBe(1)
+                expect(eventToEmit.distinct_id).toBe('distinct-id-789')
+                expect(eventToEmit.person_id).toBe('person-uuid-123')
+                expect(eventToEmit.person_mode).toBe('full')
+                expect(parseJSON(eventToEmit.person_properties || '{}')).toEqual({
                     email: 'test@example.com',
                     name: 'Test User',
                 })
@@ -72,7 +70,7 @@ describe('create-event-step', () => {
         })
 
         it('should create event with processPerson=false', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep('clickhouse_events_json')
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -88,12 +86,10 @@ describe('create-event-step', () => {
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(value.eventToEmit.person_mode).toBe('propertyless')
-                expect(value.eventToEmit.person_properties).toBe('{}')
+                expect(value.eventsToEmit).toHaveLength(1)
+                const eventToEmit = value.eventsToEmit[0].event
+                expect(eventToEmit.person_mode).toBe('propertyless')
+                expect(eventToEmit.person_properties).toBe('{}')
             }
             expect(result.sideEffects).toHaveLength(0)
         })
@@ -104,7 +100,7 @@ describe('create-event-step', () => {
                 force_upgrade: true,
             }
 
-            const step = createCreateEventStep()
+            const step = createCreateEventStep('clickhouse_events_json')
             const input = {
                 person: personWithForceUpgrade,
                 preparedEvent: mockPreparedEvent,
@@ -120,11 +116,9 @@ describe('create-event-step', () => {
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(value.eventToEmit.person_mode).toBe('force_upgrade')
+                expect(value.eventsToEmit).toHaveLength(1)
+                const eventToEmit = value.eventsToEmit[0].event
+                expect(eventToEmit.person_mode).toBe('force_upgrade')
             }
         })
 
@@ -137,7 +131,7 @@ describe('create-event-step', () => {
                 },
             }
 
-            const step = createCreateEventStep()
+            const step = createCreateEventStep('clickhouse_events_json')
             const input = {
                 person: mockPerson,
                 preparedEvent: eventWithSetProperties,
@@ -153,11 +147,9 @@ describe('create-event-step', () => {
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                const personProperties = parseJSON(value.eventToEmit.person_properties || '{}')
+                expect(value.eventsToEmit).toHaveLength(1)
+                const eventToEmit = value.eventsToEmit[0].event
+                const personProperties = parseJSON(eventToEmit.person_properties || '{}')
                 expect(personProperties).toEqual({
                     email: 'test@example.com',
                     name: 'Test User',
@@ -167,7 +159,7 @@ describe('create-event-step', () => {
         })
 
         it('should preserve event properties as JSON string', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep('clickhouse_events_json')
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -183,12 +175,10 @@ describe('create-event-step', () => {
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(typeof value.eventToEmit.properties).toBe('string')
-                expect(parseJSON(value.eventToEmit.properties || '{}')).toEqual({
+                expect(value.eventsToEmit).toHaveLength(1)
+                const eventToEmit = value.eventsToEmit[0].event
+                expect(typeof eventToEmit.properties).toBe('string')
+                expect(parseJSON(eventToEmit.properties || '{}')).toEqual({
                     $current_url: 'https://example.com',
                 })
             }
@@ -203,7 +193,7 @@ describe('create-event-step', () => {
                 },
             }
 
-            const step = createCreateEventStep()
+            const step = createCreateEventStep('clickhouse_events_json')
             const input = {
                 person: mockPerson,
                 preparedEvent: eventWithElements,
@@ -219,11 +209,9 @@ describe('create-event-step', () => {
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(value.eventToEmit.elements_chain).toBe('button:0;div:1;body:2')
+                expect(value.eventsToEmit).toHaveLength(1)
+                const eventToEmit = value.eventsToEmit[0].event
+                expect(eventToEmit.elements_chain).toBe('button:0;div:1;body:2')
             }
         })
 
@@ -233,7 +221,7 @@ describe('create-event-step', () => {
                 lastStep: string
             }
 
-            const step = createCreateEventStep<CustomInput>()
+            const step = createCreateEventStep<CustomInput>('clickhouse_events_json')
             const input: CustomInput = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -249,12 +237,12 @@ describe('create-event-step', () => {
 
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
-                expect(result.value.eventToEmit).toBeDefined()
+                expect(result.value.eventsToEmit).toHaveLength(1)
             }
         })
 
         it('should set correct timestamps', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep('clickhouse_events_json')
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -270,13 +258,11 @@ describe('create-event-step', () => {
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(value.eventToEmit.timestamp).toBeTruthy()
-                expect(value.eventToEmit.created_at).toBeTruthy()
-                expect(value.eventToEmit.person_created_at).toBeTruthy()
+                expect(value.eventsToEmit).toHaveLength(1)
+                const eventToEmit = value.eventsToEmit[0].event
+                expect(eventToEmit.timestamp).toBeTruthy()
+                expect(eventToEmit.created_at).toBeTruthy()
+                expect(eventToEmit.person_created_at).toBeTruthy()
             }
         })
 
@@ -289,7 +275,7 @@ describe('create-event-step', () => {
                     event: eventName,
                 }
 
-                const step = createCreateEventStep()
+                const step = createCreateEventStep('clickhouse_events_json')
                 const input = {
                     person: mockPerson,
                     preparedEvent: eventWithType,
@@ -304,18 +290,15 @@ describe('create-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value.eventToEmit).toBeDefined()
-                    if (!result.value.eventToEmit) {
-                        return
-                    }
-                    expect(result.value.eventToEmit.event).toBe(eventName)
+                    expect(result.value.eventsToEmit).toHaveLength(1)
+                    expect(result.value.eventsToEmit[0].event.event).toBe(eventName)
                 }
             }
         })
 
         describe('historicalMigration flag', () => {
             it('should include historical_migration in event when historicalMigration=true', async () => {
-                const step = createCreateEventStep()
+                const step = createCreateEventStep('clickhouse_events_json')
                 const input = {
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
@@ -330,16 +313,13 @@ describe('create-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value.eventToEmit).toBeDefined()
-                    if (!result.value.eventToEmit) {
-                        return
-                    }
-                    expect(result.value.eventToEmit.historical_migration).toBe(true)
+                    expect(result.value.eventsToEmit).toHaveLength(1)
+                    expect(result.value.eventsToEmit[0].event.historical_migration).toBe(true)
                 }
             })
 
             it('should not include historical_migration in event when historicalMigration=false', async () => {
-                const step = createCreateEventStep()
+                const step = createCreateEventStep('clickhouse_events_json')
                 const input = {
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
@@ -354,11 +334,8 @@ describe('create-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value.eventToEmit).toBeDefined()
-                    if (!result.value.eventToEmit) {
-                        return
-                    }
-                    expect(result.value.eventToEmit.historical_migration).toBeUndefined()
+                    expect(result.value.eventsToEmit).toHaveLength(1)
+                    expect(result.value.eventsToEmit[0].event.historical_migration).toBeUndefined()
                 }
             })
         })
@@ -374,7 +351,7 @@ describe('create-event-step', () => {
                     force_upgrade: config.force_upgrade,
                 }
 
-                const step = createCreateEventStep()
+                const step = createCreateEventStep('clickhouse_events_json')
                 const input = {
                     person,
                     preparedEvent: mockPreparedEvent,
@@ -389,11 +366,8 @@ describe('create-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value.eventToEmit).toBeDefined()
-                    if (!result.value.eventToEmit) {
-                        return
-                    }
-                    expect(result.value.eventToEmit.person_mode).toBe(expected)
+                    expect(result.value.eventsToEmit).toHaveLength(1)
+                    expect(result.value.eventsToEmit[0].event.person_mode).toBe(expected)
                 }
             })
         })

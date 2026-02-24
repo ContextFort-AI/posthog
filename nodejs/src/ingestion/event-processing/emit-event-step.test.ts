@@ -10,21 +10,18 @@ import { castTimestampOrNow } from '../../utils/utils'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { isOkResult } from '../pipelines/results'
-import { EmitEventStepConfig, createEmitEventStep, productTrackHeader } from './emit-event-step'
+import { EmitEventStepConfig, EmitEventStepInput, createEmitEventStep, productTrackHeader } from './emit-event-step'
 
-// Mock the utils module
 jest.mock('../../worker/ingestion/utils', () => ({
     captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
-// Mock the metrics module
 jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
     eventProcessedAndIngestedCounter: {
         inc: jest.fn(),
     },
 }))
 
-// Mock the ingestion lag metrics
 jest.mock('~/common/metrics', () => ({
     ingestionLagGauge: {
         labels: jest.fn().mockReturnValue({
@@ -63,7 +60,6 @@ describe('emit-event-step', () => {
 
         config = {
             kafkaProducer: mockKafkaProducer,
-            clickhouseJsonEventsTopic: 'clickhouse_events_json',
             groupId: 'test-group-id',
         }
 
@@ -87,17 +83,19 @@ describe('emit-event-step', () => {
         }
     })
 
-    describe('createEmitEventStep', () => {
-        it('should emit event successfully when eventToEmit is present', async () => {
-            const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+    const createInput = (overrides: Partial<EmitEventStepInput> = {}): EmitEventStepInput => ({
+        eventsToEmit: [{ event: mockRawEvent, topic: 'clickhouse_events_json' }],
+        headers: mockHeaders,
+        message: mockMessage,
+        ...overrides,
+    })
 
-            const result = await step(input)
+    describe('createEmitEventStep', () => {
+        it('should emit a single event to its topic', async () => {
+            const step = createEmitEventStep(config)
+            const result = await step(createInput())
 
             expect(isOkResult(result)).toBe(true)
-            if (isOkResult(result)) {
-                expect(result.value).toBeUndefined()
-            }
             expect(result.sideEffects).toHaveLength(1)
             expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
                 topic: 'clickhouse_events_json',
@@ -106,228 +104,115 @@ describe('emit-event-step', () => {
                 headers: { productTrack: 'general' },
             })
 
-            // Execute the side effect to test metric increment
             await result.sideEffects[0]
             expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
         })
 
-        it('should handle MessageSizeTooLarge error and capture ingestion warning', async () => {
-            const messageSizeTooLargeError = new MessageSizeTooLarge('Message too large', new Error('Kafka error'))
-            mockKafkaProducer.produce.mockRejectedValue(messageSizeTooLargeError)
-
+        it('should emit multiple events to their respective topics', async () => {
+            const secondEvent = { ...mockRawEvent, uuid: 'second-uuid', event: '$ai_generation' }
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+            const result = await step(
+                createInput({
+                    eventsToEmit: [
+                        { event: mockRawEvent, topic: 'clickhouse_events_json' },
+                        { event: secondEvent, topic: 'clickhouse_ai_events_json' },
+                    ],
+                })
+            )
 
-            const result = await step(input)
+            expect(result.sideEffects).toHaveLength(2)
+            expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(2)
+            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
+                topic: 'clickhouse_events_json',
+                key: 'test-uuid',
+                value: Buffer.from(JSON.stringify(mockRawEvent)),
+                headers: { productTrack: 'general' },
+            })
+            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
+                topic: 'clickhouse_ai_events_json',
+                key: 'second-uuid',
+                value: Buffer.from(JSON.stringify(secondEvent)),
+                headers: { productTrack: 'llma' },
+            })
+
+            await Promise.all(result.sideEffects)
+            expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(2)
+        })
+
+        it('should handle empty eventsToEmit list', async () => {
+            const step = createEmitEventStep(config)
+            const result = await step(createInput({ eventsToEmit: [] }))
 
             expect(isOkResult(result)).toBe(true)
-            if (isOkResult(result)) {
-                expect(result.value).toBeUndefined()
-            }
+            expect(result.sideEffects).toHaveLength(0)
+            expect(mockKafkaProducer.produce).not.toHaveBeenCalled()
+        })
+
+        it('should handle MessageSizeTooLarge error and capture ingestion warning', async () => {
+            mockKafkaProducer.produce.mockRejectedValue(
+                new MessageSizeTooLarge('Message too large', new Error('Kafka error'))
+            )
+
+            const step = createEmitEventStep(config)
+            const result = await step(createInput())
+
+            expect(isOkResult(result)).toBe(true)
             expect(result.sideEffects).toHaveLength(1)
 
-            // Execute the side effect to test error handling
             await result.sideEffects[0]
 
             expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(mockKafkaProducer, 1, 'message_size_too_large', {
                 eventUuid: 'test-uuid',
                 distinctId: 'test-distinct-id',
             })
-            // Metric should not be incremented when there's an error
             expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
+        })
+
+        it('should not increment metric when Kafka produce fails', async () => {
+            mockKafkaProducer.produce.mockRejectedValue(new Error('Kafka connection failed'))
+
+            const step = createEmitEventStep(config)
+            const result = await step(createInput())
+
+            expect(result.sideEffects).toHaveLength(1)
+            await expect(result.sideEffects[0]).rejects.toThrow('Kafka connection failed')
+            expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
+        })
+
+        it('should increment metric once per event in list', async () => {
+            const secondEvent = { ...mockRawEvent, uuid: 'second-uuid' }
+            const step = createEmitEventStep(config)
+            const result = await step(
+                createInput({
+                    eventsToEmit: [
+                        { event: mockRawEvent, topic: 'topic_a' },
+                        { event: secondEvent, topic: 'topic_b' },
+                    ],
+                })
+            )
+
+            expect(result.sideEffects).toHaveLength(2)
+            await Promise.all(result.sideEffects)
+            expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(2)
+            expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(2)
         })
 
         it('should re-throw non-MessageSizeTooLarge errors', async () => {
-            const genericError = new Error('Generic Kafka error')
-            mockKafkaProducer.produce.mockRejectedValue(genericError)
+            mockKafkaProducer.produce.mockRejectedValue(new Error('Generic Kafka error'))
 
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
+            const result = await step(createInput())
 
-            const result = await step(input)
-
-            expect(isOkResult(result)).toBe(true)
             expect(result.sideEffects).toHaveLength(1)
-
-            // Execute the side effect to test error handling
             await expect(result.sideEffects[0]).rejects.toThrow('Generic Kafka error')
             expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
-            // Metric should not be incremented when there's an error
             expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
-        })
-
-        it('should serialize event correctly for Kafka', async () => {
-            const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
-
-            await step(input)
-
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                topic: 'clickhouse_events_json',
-                key: 'test-uuid',
-                value: Buffer.from(JSON.stringify(mockRawEvent)),
-                headers: { productTrack: 'general' },
-            })
-        })
-
-        it('should use the correct topic from config', async () => {
-            const customConfig = {
-                ...config,
-                clickhouseJsonEventsTopic: 'custom_topic',
-            }
-            const step = createEmitEventStep(customConfig)
-            const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
-
-            await step(input)
-
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                topic: 'custom_topic',
-                key: 'test-uuid',
-                value: Buffer.from(JSON.stringify(mockRawEvent)),
-                headers: { productTrack: 'general' },
-            })
-        })
-
-        it('should handle events with different UUIDs correctly', async () => {
-            const step = createEmitEventStep(config)
-            const eventWithDifferentUuid = {
-                ...mockRawEvent,
-                uuid: 'different-uuid',
-            }
-            const input = { eventToEmit: eventWithDifferentUuid, headers: mockHeaders, message: mockMessage }
-
-            await step(input)
-
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                topic: 'clickhouse_events_json',
-                key: 'different-uuid',
-                value: Buffer.from(JSON.stringify(eventWithDifferentUuid)),
-                headers: { productTrack: 'general' },
-            })
-        })
-
-        it('should work with generic input types that have eventToEmit property', async () => {
-            interface CustomInput {
-                eventToEmit: RawKafkaEvent
-                headers: EventHeaders
-                message: Message
-                customProperty: string
-                lastStep: string
-            }
-
-            const step = createEmitEventStep<CustomInput>(config)
-            const input: CustomInput = {
-                eventToEmit: mockRawEvent,
-                headers: mockHeaders,
-                message: mockMessage,
-                customProperty: 'test',
-                lastStep: 'testStep',
-            }
-
-            const result = await step(input)
-
-            expect(isOkResult(result)).toBe(true)
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                topic: 'clickhouse_events_json',
-                key: 'test-uuid',
-                value: Buffer.from(JSON.stringify(mockRawEvent)),
-                headers: { productTrack: 'general' },
-            })
-        })
-
-        it('should work with EventPipelineResult type', async () => {
-            interface EventPipelineResult {
-                lastStep: string
-                eventToEmit: RawKafkaEvent
-                headers: EventHeaders
-                message: Message
-                error?: string
-            }
-
-            const step = createEmitEventStep<EventPipelineResult>(config)
-            const input: EventPipelineResult = {
-                lastStep: 'createEventStep',
-                eventToEmit: mockRawEvent,
-                headers: mockHeaders,
-                message: mockMessage,
-            }
-
-            const result = await step(input)
-
-            expect(isOkResult(result)).toBe(true)
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                topic: 'clickhouse_events_json',
-                key: 'test-uuid',
-                value: Buffer.from(JSON.stringify(mockRawEvent)),
-                headers: { productTrack: 'general' },
-            })
-        })
-
-        describe('metrics tracking', () => {
-            it('should increment eventProcessedAndIngestedCounter when event is successfully emitted', async () => {
-                const step = createEmitEventStep(config)
-                const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
-
-                const result = await step(input)
-
-                expect(isOkResult(result)).toBe(true)
-                expect(result.sideEffects).toHaveLength(1)
-
-                // Execute the side effect to trigger metric increment
-                await result.sideEffects[0]
-
-                expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
-                expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(1)
-            })
-
-            it('should not increment metric when Kafka produce fails', async () => {
-                const kafkaError = new Error('Kafka connection failed')
-                mockKafkaProducer.produce.mockRejectedValue(kafkaError)
-
-                const step = createEmitEventStep(config)
-                const input = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
-
-                const result = await step(input)
-
-                expect(isOkResult(result)).toBe(true)
-                expect(result.sideEffects).toHaveLength(1)
-
-                // Execute the side effect and expect it to throw
-                await expect(result.sideEffects[0]).rejects.toThrow('Kafka connection failed')
-
-                // Metric should not be incremented on failure
-                expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
-            })
-
-            it('should increment metric only once per successful emit', async () => {
-                const step = createEmitEventStep(config)
-                const input1 = { eventToEmit: mockRawEvent, headers: mockHeaders, message: mockMessage }
-                const input2 = {
-                    eventToEmit: { ...mockRawEvent, uuid: 'different-uuid' },
-                    headers: mockHeaders,
-                    message: mockMessage,
-                }
-
-                // First emit
-                const result1 = await step(input1)
-                await result1.sideEffects[0]
-
-                // Second emit
-                const result2 = await step(input2)
-                await result2.sideEffects[0]
-
-                // Metric should be incremented twice, once for each successful emit
-                expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(2)
-                expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(2)
-            })
         })
 
         it('should emit AI events with llma product track header', async () => {
             const aiEvent = { ...mockRawEvent, event: '$ai_generation' }
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: aiEvent, headers: mockHeaders, message: mockMessage }
-
-            await step(input)
+            await step(createInput({ eventsToEmit: [{ event: aiEvent, topic: 'clickhouse_events_json' }] }))
 
             expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
                 topic: 'clickhouse_events_json',
@@ -339,29 +224,18 @@ describe('emit-event-step', () => {
     })
 
     describe('productTrackHeader', () => {
-        it('should return "llma" for AI generation events', () => {
-            const aiEvent = { ...mockRawEvent, event: '$ai_generation' }
-            expect(productTrackHeader(aiEvent)).toBe('llma')
-        })
-
-        it('should return "llma" for AI completion events', () => {
-            const aiEvent = { ...mockRawEvent, event: '$ai_completion' }
-            expect(productTrackHeader(aiEvent)).toBe('llma')
-        })
-
-        it('should return "general" for non-AI events', () => {
-            const regularEvent = { ...mockRawEvent, event: '$pageview' }
-            expect(productTrackHeader(regularEvent)).toBe('general')
-        })
-
-        it('should return "general" for custom events', () => {
-            const customEvent = { ...mockRawEvent, event: 'user_signed_up' }
-            expect(productTrackHeader(customEvent)).toBe('general')
+        it.each([
+            { event: '$ai_generation', expected: 'llma' },
+            { event: '$ai_completion', expected: 'llma' },
+            { event: '$pageview', expected: 'general' },
+            { event: 'user_signed_up', expected: 'general' },
+        ])('should return "$expected" for $event', ({ event, expected }) => {
+            expect(productTrackHeader({ ...mockRawEvent, event })).toBe(expected)
         })
     })
 
     describe('ingestion lag metric', () => {
-        const FAKE_NOW_MS = 1702654321987 // 2023-12-15T14:32:01.987Z
+        const FAKE_NOW_MS = 1702654321987
         let mockSetFn: jest.Mock
         let mockObserveFn: jest.Mock
 
@@ -396,77 +270,49 @@ describe('emit-event-step', () => {
         })
 
         it('should record ingestion lag when headers.now and message are present', async () => {
-            const captureTime = new Date(FAKE_NOW_MS - 5432) // 5.432 seconds before fake now
+            const captureTime = new Date(FAKE_NOW_MS - 5432)
             const step = createEmitEventStep(config)
-            const input = {
-                eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: captureTime }),
-                message: createMessage(),
-            }
-
-            await step(input)
+            await step(createInput({ headers: createHeaders({ now: captureTime }), message: createMessage() }))
 
             expect(mockIngestionLagGauge.labels).toHaveBeenCalledWith({
                 topic: 'test-topic',
                 partition: '5',
                 groupId: 'test-group-id',
             })
-            expect(mockSetFn).toHaveBeenCalledTimes(1)
             expect(mockSetFn).toHaveBeenCalledWith(5432)
         })
 
         it('should not record ingestion lag when headers.now is missing', async () => {
             const step = createEmitEventStep(config)
-            const input = {
-                eventToEmit: mockRawEvent,
-                headers: createHeaders(),
-                message: createMessage(),
-            }
-
-            await step(input)
+            await step(createInput({ headers: createHeaders(), message: createMessage() }))
 
             expect(mockIngestionLagGauge.labels).not.toHaveBeenCalled()
-            expect(mockSetFn).not.toHaveBeenCalled()
         })
 
-        it('should not record ingestion lag when message.topic is undefined', async () => {
+        it.each([
+            { desc: 'message.topic is undefined', messageOverride: { topic: undefined as unknown as string } },
+            { desc: 'message.partition is undefined', messageOverride: { partition: undefined as unknown as number } },
+        ])('should not record ingestion lag when $desc', async ({ messageOverride }) => {
             const step = createEmitEventStep(config)
-            const input = {
-                eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage({ topic: undefined as unknown as string }),
-            }
-
-            await step(input)
+            await step(
+                createInput({
+                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                    message: createMessage(messageOverride),
+                })
+            )
 
             expect(mockIngestionLagGauge.labels).not.toHaveBeenCalled()
-            expect(mockSetFn).not.toHaveBeenCalled()
-        })
-
-        it('should not record ingestion lag when message.partition is undefined', async () => {
-            const step = createEmitEventStep(config)
-            const input = {
-                eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage({ partition: undefined as unknown as number }),
-            }
-
-            await step(input)
-
-            expect(mockIngestionLagGauge.labels).not.toHaveBeenCalled()
-            expect(mockSetFn).not.toHaveBeenCalled()
         })
 
         it('should use groupId from config in metric labels', async () => {
             const customConfig = { ...config, groupId: 'custom-consumer-group' }
             const step = createEmitEventStep(customConfig)
-            const input = {
-                eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage(),
-            }
-
-            await step(input)
+            await step(
+                createInput({
+                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                    message: createMessage(),
+                })
+            )
 
             expect(mockIngestionLagGauge.labels).toHaveBeenCalledWith({
                 topic: 'test-topic',
@@ -477,13 +323,12 @@ describe('emit-event-step', () => {
 
         it('should handle partition 0 correctly', async () => {
             const step = createEmitEventStep(config)
-            const input = {
-                eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage({ partition: 0 }),
-            }
-
-            await step(input)
+            await step(
+                createInput({
+                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                    message: createMessage({ partition: 0 }),
+                })
+            )
 
             expect(mockIngestionLagGauge.labels).toHaveBeenCalledWith({
                 topic: 'test-topic',
@@ -494,34 +339,30 @@ describe('emit-event-step', () => {
 
         describe('histogram', () => {
             it('should observe lag in histogram with correct labels', async () => {
-                const captureTime = new Date(FAKE_NOW_MS - 5432)
                 const step = createEmitEventStep(config)
-                const input = {
-                    eventToEmit: mockRawEvent,
-                    headers: createHeaders({ now: captureTime }),
-                    message: createMessage(),
-                }
-
-                await step(input)
+                await step(
+                    createInput({
+                        headers: createHeaders({ now: new Date(FAKE_NOW_MS - 5432) }),
+                        message: createMessage(),
+                    })
+                )
 
                 expect(mockIngestionLagHistogram.labels).toHaveBeenCalledWith({
                     groupId: 'test-group-id',
                     partition: '5',
                 })
-                expect(mockObserveFn).toHaveBeenCalledTimes(1)
                 expect(mockObserveFn).toHaveBeenCalledWith(5432)
             })
 
             it('should use custom groupId in histogram labels', async () => {
                 const customConfig = { ...config, groupId: 'custom-consumer-group' }
                 const step = createEmitEventStep(customConfig)
-                const input = {
-                    eventToEmit: mockRawEvent,
-                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                    message: createMessage({ partition: 3 }),
-                }
-
-                await step(input)
+                await step(
+                    createInput({
+                        headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                        message: createMessage({ partition: 3 }),
+                    })
+                )
 
                 expect(mockIngestionLagHistogram.labels).toHaveBeenCalledWith({
                     groupId: 'custom-consumer-group',
@@ -532,41 +373,31 @@ describe('emit-event-step', () => {
 
             it('should not observe histogram when headers.now is missing', async () => {
                 const step = createEmitEventStep(config)
-                const input = {
-                    eventToEmit: mockRawEvent,
-                    headers: createHeaders(),
-                    message: createMessage(),
-                }
-
-                await step(input)
+                await step(createInput({ headers: createHeaders(), message: createMessage() }))
 
                 expect(mockIngestionLagHistogram.labels).not.toHaveBeenCalled()
-                expect(mockObserveFn).not.toHaveBeenCalled()
             })
 
             it('should not observe histogram when message.partition is undefined', async () => {
                 const step = createEmitEventStep(config)
-                const input = {
-                    eventToEmit: mockRawEvent,
-                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                    message: createMessage({ partition: undefined as unknown as number }),
-                }
-
-                await step(input)
+                await step(
+                    createInput({
+                        headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                        message: createMessage({ partition: undefined as unknown as number }),
+                    })
+                )
 
                 expect(mockIngestionLagHistogram.labels).not.toHaveBeenCalled()
-                expect(mockObserveFn).not.toHaveBeenCalled()
             })
 
             it('should handle partition 0 correctly in histogram', async () => {
                 const step = createEmitEventStep(config)
-                const input = {
-                    eventToEmit: mockRawEvent,
-                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 2500) }),
-                    message: createMessage({ partition: 0 }),
-                }
-
-                await step(input)
+                await step(
+                    createInput({
+                        headers: createHeaders({ now: new Date(FAKE_NOW_MS - 2500) }),
+                        message: createMessage({ partition: 0 }),
+                    })
+                )
 
                 expect(mockIngestionLagHistogram.labels).toHaveBeenCalledWith({
                     groupId: 'test-group-id',
