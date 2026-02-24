@@ -196,12 +196,20 @@ const DRAFT_CONTENT_FIELDS: (keyof HogFlow)[] = [
     'variables',
 ]
 
-function buildDraftData(workflow: HogFlow): Partial<HogFlow> {
+export function buildDraftData(workflow: HogFlow, deletedActionIds?: Set<string>): Partial<HogFlow> {
     const data: Partial<HogFlow> = {}
     for (const field of DRAFT_CONTENT_FIELDS) {
         ;(data as any)[field] = workflow[field]
     }
+    if (deletedActionIds && deletedActionIds.size > 0) {
+        ;(data as any).deleted_action_ids = [...deletedActionIds]
+    }
     return data
+}
+
+export function hydrateDeletedActionIds(workflow: HogFlow | null): Set<string> {
+    const ids = (workflow?.draft as any)?.deleted_action_ids
+    return Array.isArray(ids) ? new Set<string>(ids) : new Set<string>()
 }
 
 export const workflowLogic = kea<workflowLogicType>([
@@ -318,12 +326,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         return null
                     }
                     const workflow = sanitizeWorkflow({ ...values.workflow }, values.hogFunctionTemplatesById)
-                    const draftData = buildDraftData(workflow)
-                    // Persist soft-deleted action IDs in the draft so they survive page reload.
-                    // The actual stripping + edge reconnection happens at publish time.
-                    if (values.draftDeletedActionIds.size > 0) {
-                        ;(draftData as any).deleted_action_ids = [...values.draftDeletedActionIds]
-                    }
+                    const draftData = buildDraftData(workflow, values.draftDeletedActionIds)
                     return api.hogFlows.saveDraft(props.id, draftData)
                 },
             },
@@ -455,10 +458,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     next.delete(actionId)
                     return next
                 },
-                loadWorkflowSuccess: (_: Set<string>, { originalWorkflow }: { originalWorkflow: HogFlow }) => {
-                    const ids = (originalWorkflow?.draft as any)?.deleted_action_ids
-                    return Array.isArray(ids) ? new Set<string>(ids) : new Set<string>()
-                },
+                loadWorkflowSuccess: (_: Set<string>, { originalWorkflow }: { originalWorkflow: HogFlow }) =>
+                    hydrateDeletedActionIds(originalWorkflow),
                 saveWorkflowSuccess: () => new Set<string>(),
                 publishDraftToServerSuccess: () => new Set<string>(),
                 discardDraftOnServerSuccess: () => new Set<string>(),
