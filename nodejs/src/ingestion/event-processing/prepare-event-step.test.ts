@@ -211,6 +211,7 @@ describe('createPrepareEventStep', () => {
         expect(result.warnings).toEqual([{ type: 'timestamp_in_the_future', details: { timestamp: '3000-01-01' } }])
     })
 
+
     it('should propagate errors from processEvent', async () => {
         const error = new Error('Processing failed')
         mockProcessEvent.mockRejectedValue(error)

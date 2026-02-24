@@ -17,6 +17,7 @@ import { createHogTransformEventStep } from '../event-processing/hog-transform-e
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
+import { createProcessAiEventStep } from '../event-processing/process-ai-event-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../event-processing/process-persons-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
@@ -64,6 +65,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         .pipe(createNormalizeProcessPersonFlagStep())
         .pipe(createHogTransformEventStep(hogTransformer))
         .pipe(createNormalizeEventStep())
+        .pipe(createProcessAiEventStep())
         .pipe(createProcessPersonlessStep(personsStore))
         .pipe(
             topHog(createProcessPersonsStep(options, kafkaProducer, personsStore), [
