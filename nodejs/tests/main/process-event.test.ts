@@ -19,6 +19,7 @@ import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
 
 import { createCreateEventStep } from '../../src/ingestion/event-processing/create-event-step'
 import { createEmitEventStep } from '../../src/ingestion/event-processing/emit-event-step'
+import { EVENTS_OUTPUT, IngestionOutputs } from '../../src/ingestion/event-processing/ingestion-outputs'
 import { isOkResult } from '../../src/ingestion/pipelines/results'
 import { Hub, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -134,7 +135,7 @@ describe('processEvent', () => {
             groupStoreForBatch
         )
         {
-            const createEventStep = createCreateEventStep(hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC)
+            const createEventStep = createCreateEventStep(EVENTS_OUTPUT)
             const createResult = await createEventStep({
                 person,
                 preparedEvent,
@@ -145,8 +146,14 @@ describe('processEvent', () => {
             })
 
             if (isOkResult(createResult)) {
+                const outputs = new IngestionOutputs({
+                    [EVENTS_OUTPUT]: {
+                        topic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                        producer: hub.kafkaProducer,
+                    },
+                })
                 const emitEventStep = createEmitEventStep({
-                    kafkaProducer: hub.kafkaProducer,
+                    outputs,
                     groupId: 'test-group-id',
                 })
                 const emitResult = await emitEventStep(createResult.value)

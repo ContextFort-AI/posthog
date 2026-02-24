@@ -8,6 +8,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isOkResult } from '../pipelines/results'
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
+import { EVENTS_OUTPUT } from './ingestion-outputs'
 
 describe('create-event-step', () => {
     let mockPerson: Person
@@ -37,7 +38,7 @@ describe('create-event-step', () => {
 
     describe('createCreateEventStep', () => {
         it('should create event with processPerson=true', async () => {
-            const step = createCreateEventStep('clickhouse_events_json')
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -54,6 +55,7 @@ describe('create-event-step', () => {
             if (isOkResult(result)) {
                 const value = result.value
                 expect(value.eventsToEmit).toHaveLength(1)
+                expect(value.eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
                 const eventToEmit = value.eventsToEmit[0].event
                 expect(eventToEmit.uuid).toBe('event-uuid-456')
                 expect(eventToEmit.event).toBe('$pageview')
@@ -70,7 +72,7 @@ describe('create-event-step', () => {
         })
 
         it('should create event with processPerson=false', async () => {
-            const step = createCreateEventStep('clickhouse_events_json')
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -100,7 +102,7 @@ describe('create-event-step', () => {
                 force_upgrade: true,
             }
 
-            const step = createCreateEventStep('clickhouse_events_json')
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: personWithForceUpgrade,
                 preparedEvent: mockPreparedEvent,
@@ -131,7 +133,7 @@ describe('create-event-step', () => {
                 },
             }
 
-            const step = createCreateEventStep('clickhouse_events_json')
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: eventWithSetProperties,
@@ -159,7 +161,7 @@ describe('create-event-step', () => {
         })
 
         it('should preserve event properties as JSON string', async () => {
-            const step = createCreateEventStep('clickhouse_events_json')
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -193,7 +195,7 @@ describe('create-event-step', () => {
                 },
             }
 
-            const step = createCreateEventStep('clickhouse_events_json')
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: eventWithElements,
@@ -221,7 +223,7 @@ describe('create-event-step', () => {
                 lastStep: string
             }
 
-            const step = createCreateEventStep<CustomInput>('clickhouse_events_json')
+            const step = createCreateEventStep<typeof EVENTS_OUTPUT, CustomInput>(EVENTS_OUTPUT)
             const input: CustomInput = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -242,7 +244,7 @@ describe('create-event-step', () => {
         })
 
         it('should set correct timestamps', async () => {
-            const step = createCreateEventStep('clickhouse_events_json')
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -275,7 +277,7 @@ describe('create-event-step', () => {
                     event: eventName,
                 }
 
-                const step = createCreateEventStep('clickhouse_events_json')
+                const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
                     person: mockPerson,
                     preparedEvent: eventWithType,
@@ -298,7 +300,7 @@ describe('create-event-step', () => {
 
         describe('historicalMigration flag', () => {
             it('should include historical_migration in event when historicalMigration=true', async () => {
-                const step = createCreateEventStep('clickhouse_events_json')
+                const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
@@ -319,7 +321,7 @@ describe('create-event-step', () => {
             })
 
             it('should not include historical_migration in event when historicalMigration=false', async () => {
-                const step = createCreateEventStep('clickhouse_events_json')
+                const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
@@ -351,7 +353,7 @@ describe('create-event-step', () => {
                     force_upgrade: config.force_upgrade,
                 }
 
-                const step = createCreateEventStep('clickhouse_events_json')
+                const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
                     person,
                     preparedEvent: mockPreparedEvent,

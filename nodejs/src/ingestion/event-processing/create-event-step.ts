@@ -15,16 +15,16 @@ export interface CreateEventStepInput {
     message: Message
 }
 
-export interface CreateEventStepResult {
+export interface CreateEventStepResult<O extends string = string> {
     teamId: number
-    eventsToEmit: EventToEmit[]
+    eventsToEmit: EventToEmit<O>[]
     headers: EventHeaders
     message: Message
 }
 
-export function createCreateEventStep<T extends CreateEventStepInput>(
-    topic: string
-): ProcessingStep<T, CreateEventStepResult> {
+export function createCreateEventStep<O extends string, T extends CreateEventStepInput>(
+    output: O
+): ProcessingStep<T, CreateEventStepResult<O>> {
     return function createEventStep(input) {
         const { person, preparedEvent, processPerson, historicalMigration, headers, message } = input
 
@@ -34,7 +34,7 @@ export function createCreateEventStep<T extends CreateEventStepInput>(
         return Promise.resolve(
             ok({
                 teamId: preparedEvent.teamId,
-                eventsToEmit: [{ event: rawEvent, topic }],
+                eventsToEmit: [{ event: rawEvent, output }],
                 headers,
                 message,
             })

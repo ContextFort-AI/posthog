@@ -10,7 +10,8 @@ import { castTimestampOrNow } from '../../utils/utils'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { isOkResult } from '../pipelines/results'
-import { EmitEventStepConfig, EmitEventStepInput, createEmitEventStep, productTrackHeader } from './emit-event-step'
+import { EmitEventStepInput, createEmitEventStep, productTrackHeader } from './emit-event-step'
+import { EVENTS_OUTPUT, IngestionOutputs } from './ingestion-outputs'
 
 jest.mock('../../worker/ingestion/utils', () => ({
     captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
@@ -42,7 +43,6 @@ const mockIngestionLagHistogram = jest.mocked(ingestionLagHistogram)
 
 describe('emit-event-step', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
-    let config: EmitEventStepConfig
     let mockRawEvent: RawKafkaEvent
     let mockHeaders: EventHeaders
     let mockMessage: Message
@@ -57,11 +57,6 @@ describe('emit-event-step', () => {
             flush: jest.fn().mockResolvedValue(undefined),
             disconnect: jest.fn().mockResolvedValue(undefined),
         } as any
-
-        config = {
-            kafkaProducer: mockKafkaProducer,
-            groupId: 'test-group-id',
-        }
 
         const testTimestamp = castTimestampOrNow('2023-01-01T00:00:00.000Z', TimestampFormat.ClickHouse)
 
@@ -83,16 +78,30 @@ describe('emit-event-step', () => {
         }
     })
 
+    function createOutputs(
+        config: Record<string, { topic: string }> = {
+            [EVENTS_OUTPUT]: { topic: 'clickhouse_events_json' },
+        }
+    ): IngestionOutputs<string> {
+        const mapped = Object.fromEntries(
+            Object.entries(config).map(([dest, { topic }]) => [dest, { topic, producer: mockKafkaProducer }])
+        ) as Record<string, { topic: string; producer: typeof mockKafkaProducer }>
+        return new IngestionOutputs(mapped)
+    }
+
     const createInput = (overrides: Partial<EmitEventStepInput> = {}): EmitEventStepInput => ({
-        eventsToEmit: [{ event: mockRawEvent, topic: 'clickhouse_events_json' }],
+        eventsToEmit: [{ event: mockRawEvent, output: EVENTS_OUTPUT }],
         headers: mockHeaders,
         message: mockMessage,
         ...overrides,
     })
 
     describe('createEmitEventStep', () => {
-        it('should emit a single event to its topic', async () => {
-            const step = createEmitEventStep(config)
+        it('should emit a single event to its output topic', async () => {
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
             const result = await step(createInput())
 
             expect(isOkResult(result)).toBe(true)
@@ -108,14 +117,21 @@ describe('emit-event-step', () => {
             expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
         })
 
-        it('should emit multiple events to their respective topics', async () => {
+        it('should emit multiple events to their respective output topics', async () => {
             const secondEvent = { ...mockRawEvent, uuid: 'second-uuid', event: '$ai_generation' }
-            const step = createEmitEventStep(config)
+            const outputs = createOutputs({
+                events: { topic: 'clickhouse_events_json' },
+                ai_events: { topic: 'clickhouse_ai_events_json' },
+            })
+            const step = createEmitEventStep({
+                outputs,
+                groupId: 'test-group-id',
+            })
             const result = await step(
                 createInput({
                     eventsToEmit: [
-                        { event: mockRawEvent, topic: 'clickhouse_events_json' },
-                        { event: secondEvent, topic: 'clickhouse_ai_events_json' },
+                        { event: mockRawEvent, output: 'events' },
+                        { event: secondEvent, output: 'ai_events' },
                     ],
                 })
             )
@@ -140,7 +156,10 @@ describe('emit-event-step', () => {
         })
 
         it('should handle empty eventsToEmit list', async () => {
-            const step = createEmitEventStep(config)
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
             const result = await step(createInput({ eventsToEmit: [] }))
 
             expect(isOkResult(result)).toBe(true)
@@ -153,7 +172,10 @@ describe('emit-event-step', () => {
                 new MessageSizeTooLarge('Message too large', new Error('Kafka error'))
             )
 
-            const step = createEmitEventStep(config)
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
             const result = await step(createInput())
 
             expect(isOkResult(result)).toBe(true)
@@ -171,7 +193,10 @@ describe('emit-event-step', () => {
         it('should not increment metric when Kafka produce fails', async () => {
             mockKafkaProducer.produce.mockRejectedValue(new Error('Kafka connection failed'))
 
-            const step = createEmitEventStep(config)
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
             const result = await step(createInput())
 
             expect(result.sideEffects).toHaveLength(1)
@@ -181,12 +206,19 @@ describe('emit-event-step', () => {
 
         it('should increment metric once per event in list', async () => {
             const secondEvent = { ...mockRawEvent, uuid: 'second-uuid' }
-            const step = createEmitEventStep(config)
+            const outputs = createOutputs({
+                dest_a: { topic: 'topic_a' },
+                dest_b: { topic: 'topic_b' },
+            })
+            const step = createEmitEventStep({
+                outputs,
+                groupId: 'test-group-id',
+            })
             const result = await step(
                 createInput({
                     eventsToEmit: [
-                        { event: mockRawEvent, topic: 'topic_a' },
-                        { event: secondEvent, topic: 'topic_b' },
+                        { event: mockRawEvent, output: 'dest_a' },
+                        { event: secondEvent, output: 'dest_b' },
                     ],
                 })
             )
@@ -200,7 +232,10 @@ describe('emit-event-step', () => {
         it('should re-throw non-MessageSizeTooLarge errors', async () => {
             mockKafkaProducer.produce.mockRejectedValue(new Error('Generic Kafka error'))
 
-            const step = createEmitEventStep(config)
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
             const result = await step(createInput())
 
             expect(result.sideEffects).toHaveLength(1)
@@ -211,8 +246,11 @@ describe('emit-event-step', () => {
 
         it('should emit AI events with llma product track header', async () => {
             const aiEvent = { ...mockRawEvent, event: '$ai_generation' }
-            const step = createEmitEventStep(config)
-            await step(createInput({ eventsToEmit: [{ event: aiEvent, topic: 'clickhouse_events_json' }] }))
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
+            await step(createInput({ eventsToEmit: [{ event: aiEvent, output: EVENTS_OUTPUT }] }))
 
             expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
                 topic: 'clickhouse_events_json',
@@ -271,7 +309,10 @@ describe('emit-event-step', () => {
 
         it('should record ingestion lag when headers.now and message are present', async () => {
             const captureTime = new Date(FAKE_NOW_MS - 5432)
-            const step = createEmitEventStep(config)
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
             await step(createInput({ headers: createHeaders({ now: captureTime }), message: createMessage() }))
 
             expect(mockIngestionLagGauge.labels).toHaveBeenCalledWith({
@@ -283,7 +324,10 @@ describe('emit-event-step', () => {
         })
 
         it('should not record ingestion lag when headers.now is missing', async () => {
-            const step = createEmitEventStep(config)
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
             await step(createInput({ headers: createHeaders(), message: createMessage() }))
 
             expect(mockIngestionLagGauge.labels).not.toHaveBeenCalled()
@@ -293,7 +337,10 @@ describe('emit-event-step', () => {
             { desc: 'message.topic is undefined', messageOverride: { topic: undefined as unknown as string } },
             { desc: 'message.partition is undefined', messageOverride: { partition: undefined as unknown as number } },
         ])('should not record ingestion lag when $desc', async ({ messageOverride }) => {
-            const step = createEmitEventStep(config)
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
             await step(
                 createInput({
                     headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
@@ -305,8 +352,10 @@ describe('emit-event-step', () => {
         })
 
         it('should use groupId from config in metric labels', async () => {
-            const customConfig = { ...config, groupId: 'custom-consumer-group' }
-            const step = createEmitEventStep(customConfig)
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'custom-consumer-group',
+            })
             await step(
                 createInput({
                     headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
@@ -322,7 +371,10 @@ describe('emit-event-step', () => {
         })
 
         it('should handle partition 0 correctly', async () => {
-            const step = createEmitEventStep(config)
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
             await step(
                 createInput({
                     headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
@@ -339,7 +391,10 @@ describe('emit-event-step', () => {
 
         describe('histogram', () => {
             it('should observe lag in histogram with correct labels', async () => {
-                const step = createEmitEventStep(config)
+                const step = createEmitEventStep({
+                    outputs: createOutputs(),
+                    groupId: 'test-group-id',
+                })
                 await step(
                     createInput({
                         headers: createHeaders({ now: new Date(FAKE_NOW_MS - 5432) }),
@@ -355,8 +410,10 @@ describe('emit-event-step', () => {
             })
 
             it('should use custom groupId in histogram labels', async () => {
-                const customConfig = { ...config, groupId: 'custom-consumer-group' }
-                const step = createEmitEventStep(customConfig)
+                const step = createEmitEventStep({
+                    outputs: createOutputs(),
+                    groupId: 'custom-consumer-group',
+                })
                 await step(
                     createInput({
                         headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
@@ -372,14 +429,20 @@ describe('emit-event-step', () => {
             })
 
             it('should not observe histogram when headers.now is missing', async () => {
-                const step = createEmitEventStep(config)
+                const step = createEmitEventStep({
+                    outputs: createOutputs(),
+                    groupId: 'test-group-id',
+                })
                 await step(createInput({ headers: createHeaders(), message: createMessage() }))
 
                 expect(mockIngestionLagHistogram.labels).not.toHaveBeenCalled()
             })
 
             it('should not observe histogram when message.partition is undefined', async () => {
-                const step = createEmitEventStep(config)
+                const step = createEmitEventStep({
+                    outputs: createOutputs(),
+                    groupId: 'test-group-id',
+                })
                 await step(
                     createInput({
                         headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
@@ -391,7 +454,10 @@ describe('emit-event-step', () => {
             })
 
             it('should handle partition 0 correctly in histogram', async () => {
-                const step = createEmitEventStep(config)
+                const step = createEmitEventStep({
+                    outputs: createOutputs(),
+                    groupId: 'test-group-id',
+                })
                 await step(
                     createInput({
                         headers: createHeaders({ now: new Date(FAKE_NOW_MS - 2500) }),

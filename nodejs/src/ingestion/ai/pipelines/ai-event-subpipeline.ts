@@ -1,7 +1,8 @@
-import { EventSubpipelineConfig, EventSubpipelineInput } from '../../analytics/event-subpipeline'
+import { EventSubpipelineInput } from '../../analytics/event-subpipeline'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { createEmitEventStep } from '../../event-processing/emit-event-step'
 import { createHogTransformEventStep } from '../../event-processing/hog-transform-event-step'
+import { EVENTS_OUTPUT } from '../../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../../event-processing/normalize-process-person-flag-step'
 import { createPrepareEventStep } from '../../event-processing/prepare-event-step'
@@ -11,10 +12,11 @@ import { createProcessPersonsStep } from '../../event-processing/process-persons
 import { createSplitAiEventsStep } from '../../event-processing/split-ai-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../../pipelines/builders/pipeline-builders'
 import { sum } from '../../pipelines/extensions/tophog'
+import { AiEventSubpipelineConfig } from './ai-event-subpipeline-config'
 
 export function createAiEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
-    config: EventSubpipelineConfig
+    config: AiEventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
     const {
         options,
@@ -24,6 +26,7 @@ export function createAiEventSubpipeline<TInput extends EventSubpipelineInput, T
         personsStore,
         groupStore,
         kafkaProducer,
+        outputs,
         groupId,
         topHog,
     } = config
@@ -36,12 +39,12 @@ export function createAiEventSubpipeline<TInput extends EventSubpipelineInput, T
         .pipe(createProcessPersonlessStep(personsStore))
         .pipe(createProcessPersonsStep(options, kafkaProducer, personsStore))
         .pipe(createPrepareEventStep(kafkaProducer, teamManager, groupTypeManager, groupStore, options))
-        .pipe(createCreateEventStep(options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC))
-        .pipe(createSplitAiEventsStep({ aiEventsTopic: options.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC }))
+        .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createSplitAiEventsStep())
         .pipe(
             topHog(
                 createEmitEventStep({
-                    kafkaProducer,
+                    outputs,
                     groupId,
                 }),
                 // team_id is the same for all events in the list

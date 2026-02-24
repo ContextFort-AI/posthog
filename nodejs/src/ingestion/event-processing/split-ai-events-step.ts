@@ -3,6 +3,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { EventToEmit } from './emit-event-step'
+import { AI_EVENTS_OUTPUT } from './ingestion-outputs'
 
 const LARGE_AI_PROPERTIES = new Set([
     '$ai_input',
@@ -13,16 +14,12 @@ const LARGE_AI_PROPERTIES = new Set([
     '$ai_tools',
 ])
 
-export interface SplitAiEventsStepConfig {
-    aiEventsTopic: string
+export interface SplitAiEventsStepInput<O extends string = string> {
+    eventsToEmit: EventToEmit<O>[]
 }
 
-export interface SplitAiEventsStepInput {
-    eventsToEmit: EventToEmit[]
-}
-
-function maybeStripAiProperties(entry: EventToEmit, aiEventsTopic: string): EventToEmit[] {
-    if (entry.topic === aiEventsTopic) {
+function maybeStripAiProperties<O extends string>(entry: EventToEmit<O>): EventToEmit<O | typeof AI_EVENTS_OUTPUT>[] {
+    if (entry.output === AI_EVENTS_OUTPUT) {
         return [entry]
     }
 
@@ -50,21 +47,17 @@ function maybeStripAiProperties(entry: EventToEmit, aiEventsTopic: string): Even
     const strippedEvent: RawKafkaEvent = { ...entry.event, properties: JSON.stringify(stripped) }
 
     return [
-        { event: strippedEvent, topic: entry.topic },
-        { event: entry.event, topic: aiEventsTopic },
+        { event: strippedEvent, output: entry.output },
+        { event: entry.event, output: AI_EVENTS_OUTPUT },
     ]
 }
 
-export function createSplitAiEventsStep<T extends SplitAiEventsStepInput>(
-    config: SplitAiEventsStepConfig
-): ProcessingStep<T, T> {
-    const { aiEventsTopic } = config
-
+export function createSplitAiEventsStep<O extends string, T extends SplitAiEventsStepInput<O>>(): ProcessingStep<T, T> {
     return function splitAiEventsStep(input) {
         return Promise.resolve(
             ok({
                 ...input,
-                eventsToEmit: input.eventsToEmit.flatMap((entry) => maybeStripAiProperties(entry, aiEventsTopic)),
+                eventsToEmit: input.eventsToEmit.flatMap((entry) => maybeStripAiProperties(entry)),
             })
         )
     }

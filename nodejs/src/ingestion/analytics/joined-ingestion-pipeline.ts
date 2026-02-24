@@ -12,6 +12,7 @@ import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writ
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
+import { AiEventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
@@ -56,9 +57,8 @@ export interface JoinedIngestionPipelineConfig {
     overflowLaneTTLRefreshService?: OverflowRedirectService
 
     // Per-distinct-id config
+    outputs: IngestionOutputs<AiEventOutput>
     perDistinctIdOptions: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
-        CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
     teamManager: TeamManager
@@ -129,6 +129,7 @@ export function createJoinedIngestionPipeline<
         promiseScheduler,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
+        outputs,
         perDistinctIdOptions,
         teamManager,
         groupTypeManager,
@@ -167,6 +168,7 @@ export function createJoinedIngestionPipeline<
         personsStore,
         groupStore,
         kafkaProducer,
+        outputs,
         groupId,
         topHog: topHogWrapper,
     }

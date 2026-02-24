@@ -10,6 +10,7 @@ import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { AI_EVENT_TYPES } from '../ai'
 import { createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
+import { AiEventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import {
@@ -25,8 +26,6 @@ export type PerDistinctIdPipelineInput = EventSubpipelineInput &
 
 export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
-        CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
     teamManager: TeamManager
@@ -35,6 +34,7 @@ export interface PerDistinctIdPipelineConfig {
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
+    outputs: IngestionOutputs<AiEventOutput>
     groupId: string
     topHog: TopHogWrapper
 }
@@ -68,6 +68,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
         personsStore,
         groupStore,
         kafkaProducer,
+        outputs,
         groupId,
         topHog,
     } = config
@@ -95,6 +96,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             personsStore,
                             groupStore,
                             kafkaProducer,
+                            outputs,
                             groupId,
                             topHog,
                         })
@@ -108,6 +110,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             personsStore,
                             groupStore,
                             kafkaProducer,
+                            outputs,
                             groupId,
                             topHog,
                         })

@@ -1,6 +1,7 @@
 import { PersonMode, ProjectId, RawKafkaEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { isOkResult } from '../pipelines/results'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './ingestion-outputs'
 import { createSplitAiEventsStep } from './split-ai-events-step'
 
 function createRawKafkaEvent(
@@ -23,9 +24,7 @@ function createRawKafkaEvent(
 }
 
 describe('split-ai-events-step', () => {
-    const mainTopic = 'clickhouse_events_json'
-    const aiEventsTopic = 'clickhouse_ai_events_json'
-    const step = createSplitAiEventsStep({ aiEventsTopic })
+    const step = createSplitAiEventsStep()
 
     it('should split an event with large AI properties into stripped + full', async () => {
         const event = createRawKafkaEvent({
@@ -35,7 +34,7 @@ describe('split-ai-events-step', () => {
             $browser: 'Chrome',
         })
 
-        const result = await step({ eventsToEmit: [{ event, topic: mainTopic }] })
+        const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }] })
         expect(isOkResult(result)).toBe(true)
         if (!isOkResult(result)) {
             return
@@ -45,8 +44,8 @@ describe('split-ai-events-step', () => {
         expect(eventsToEmit).toHaveLength(2)
 
         const [mainEntry, aiEntry] = eventsToEmit
-        expect(mainEntry.topic).toBe(mainTopic)
-        expect(aiEntry.topic).toBe(aiEventsTopic)
+        expect(mainEntry.output).toBe(EVENTS_OUTPUT)
+        expect(aiEntry.output).toBe(AI_EVENTS_OUTPUT)
 
         expect(parseJSON(mainEntry.event.properties!)).toEqual({ $ai_model: 'gpt-4', $browser: 'Chrome' })
         expect(parseJSON(aiEntry.event.properties!)).toEqual({
@@ -58,11 +57,11 @@ describe('split-ai-events-step', () => {
     })
 
     it.each(['$ai_input', '$ai_output', '$ai_output_choices', '$ai_input_state', '$ai_output_state', '$ai_tools'])(
-        'should strip %s from the main topic event',
+        'should strip %s from the main output event',
         async (property) => {
             const event = createRawKafkaEvent({ [property]: 'large value', $ai_model: 'gpt-4' })
 
-            const result = await step({ eventsToEmit: [{ event, topic: mainTopic }] })
+            const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }] })
             expect(isOkResult(result)).toBe(true)
             if (!isOkResult(result)) {
                 return
@@ -79,7 +78,7 @@ describe('split-ai-events-step', () => {
     it('should pass through event without large AI properties', async () => {
         const event = createRawKafkaEvent({ $ai_model: 'gpt-4', $browser: 'Chrome' })
 
-        const result = await step({ eventsToEmit: [{ event, topic: mainTopic }] })
+        const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }] })
         expect(isOkResult(result)).toBe(true)
         if (!isOkResult(result)) {
             return
@@ -88,13 +87,13 @@ describe('split-ai-events-step', () => {
         const { eventsToEmit } = result.value
         expect(eventsToEmit).toHaveLength(1)
         expect(eventsToEmit[0].event).toBe(event)
-        expect(eventsToEmit[0].topic).toBe(mainTopic)
+        expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
     })
 
-    it('should skip events already destined for the AI topic', async () => {
+    it('should skip events already destined for the AI output', async () => {
         const event = createRawKafkaEvent({ $ai_input: 'large input' })
 
-        const result = await step({ eventsToEmit: [{ event, topic: aiEventsTopic }] })
+        const result = await step({ eventsToEmit: [{ event, output: AI_EVENTS_OUTPUT }] })
         expect(isOkResult(result)).toBe(true)
         if (!isOkResult(result)) {
             return
@@ -103,7 +102,7 @@ describe('split-ai-events-step', () => {
         const { eventsToEmit } = result.value
         expect(eventsToEmit).toHaveLength(1)
         expect(eventsToEmit[0].event).toBe(event)
-        expect(eventsToEmit[0].topic).toBe(aiEventsTopic)
+        expect(eventsToEmit[0].output).toBe(AI_EVENTS_OUTPUT)
     })
 
     it('should handle multiple events independently', async () => {
@@ -112,8 +111,8 @@ describe('split-ai-events-step', () => {
 
         const result = await step({
             eventsToEmit: [
-                { event: aiEvent, topic: mainTopic },
-                { event: regularEvent, topic: mainTopic },
+                { event: aiEvent, output: EVENTS_OUTPUT },
+                { event: regularEvent, output: EVENTS_OUTPUT },
             ],
         })
         expect(isOkResult(result)).toBe(true)
@@ -124,18 +123,18 @@ describe('split-ai-events-step', () => {
         const { eventsToEmit } = result.value
         expect(eventsToEmit).toHaveLength(3)
 
-        expect(eventsToEmit[0].topic).toBe(mainTopic)
+        expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
         expect(parseJSON(eventsToEmit[0].event.properties!)).not.toHaveProperty('$ai_input')
-        expect(eventsToEmit[1].topic).toBe(aiEventsTopic)
+        expect(eventsToEmit[1].output).toBe(AI_EVENTS_OUTPUT)
         expect(parseJSON(eventsToEmit[1].event.properties!)).toHaveProperty('$ai_input', 'large')
         expect(eventsToEmit[2].event).toBe(regularEvent)
-        expect(eventsToEmit[2].topic).toBe(mainTopic)
+        expect(eventsToEmit[2].output).toBe(EVENTS_OUTPUT)
     })
 
     it('should handle empty properties', async () => {
         const event = createRawKafkaEvent({})
 
-        const result = await step({ eventsToEmit: [{ event, topic: mainTopic }] })
+        const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }] })
         expect(isOkResult(result)).toBe(true)
         if (!isOkResult(result)) {
             return
@@ -149,7 +148,7 @@ describe('split-ai-events-step', () => {
         const event = createRawKafkaEvent()
         event.properties = undefined
 
-        const result = await step({ eventsToEmit: [{ event, topic: mainTopic }] })
+        const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }] })
         expect(isOkResult(result)).toBe(true)
         if (!isOkResult(result)) {
             return
@@ -169,10 +168,10 @@ describe('split-ai-events-step', () => {
         expect(result.value.eventsToEmit).toHaveLength(0)
     })
 
-    it('should copy for main topic and keep original for AI topic', async () => {
+    it('should copy for main output and keep original for AI output', async () => {
         const event = createRawKafkaEvent({ $ai_input: 'large input', $ai_model: 'gpt-4' })
 
-        const result = await step({ eventsToEmit: [{ event, topic: mainTopic }] })
+        const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }] })
         expect(isOkResult(result)).toBe(true)
         if (!isOkResult(result)) {
             return
@@ -181,11 +180,11 @@ describe('split-ai-events-step', () => {
         const { eventsToEmit } = result.value
         expect(eventsToEmit).toHaveLength(2)
 
-        // Main topic entry is a copy with stripped properties
+        // Main output entry is a copy with stripped properties
         expect(eventsToEmit[0].event).not.toBe(event)
         expect(parseJSON(eventsToEmit[0].event.properties!)).not.toHaveProperty('$ai_input')
 
-        // AI topic entry keeps the original event object
+        // AI output entry keeps the original event object
         expect(eventsToEmit[1].event).toBe(event)
     })
 })

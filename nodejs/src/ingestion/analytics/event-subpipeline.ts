@@ -14,6 +14,7 @@ import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
+import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
@@ -32,8 +33,6 @@ export interface EventSubpipelineInput {
 
 export interface EventSubpipelineConfig {
     options: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
-        CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
     teamManager: TeamManager
@@ -42,6 +41,7 @@ export interface EventSubpipelineConfig {
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
+    outputs: IngestionOutputs<EventOutput>
     groupId: string
     topHog: TopHogWrapper
 }
@@ -58,6 +58,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         personsStore,
         groupStore,
         kafkaProducer,
+        outputs,
         groupId,
         topHog,
     } = config
@@ -83,11 +84,11 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
             })
         )
-        .pipe(createCreateEventStep(options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC))
+        .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(
             topHog(
                 createEmitEventStep({
-                    kafkaProducer,
+                    outputs,
                     groupId,
                 }),
                 // team_id is the same for all events in the list

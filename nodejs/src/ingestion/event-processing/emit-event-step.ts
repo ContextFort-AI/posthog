@@ -1,40 +1,36 @@
 import { Message } from 'node-rdkafka'
 
 import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, RawKafkaEvent } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
+import { IngestionOutputs } from './ingestion-outputs'
 
-// TODO: Create a Kafka destination registry. EventToEmit should use a type-safe destination enum
-//       (e.g. 'events' | 'ai_events') instead of raw topic strings. The ingestion consumer sets up
-//       the registry mapping destination names to topic names and producer instances, decoupling
-//       Kafka infrastructure from event destinations.
-export interface EventToEmit {
+export interface EventToEmit<O extends string = string> {
     event: RawKafkaEvent
-    topic: string
+    output: O
 }
 
-export interface EmitEventStepConfig {
-    kafkaProducer: KafkaProducerWrapper
+export interface EmitEventStepConfig<O extends string = string> {
+    outputs: IngestionOutputs<O>
     groupId: string
 }
 
-export interface EmitEventStepInput {
-    eventsToEmit: EventToEmit[]
+export interface EmitEventStepInput<O extends string = string> {
+    eventsToEmit: EventToEmit<O>[]
     headers: EventHeaders
     message: Message
 }
 
-export function createEmitEventStep<T extends EmitEventStepInput>(
-    config: EmitEventStepConfig
+export function createEmitEventStep<O extends string, T extends EmitEventStepInput<O>>(
+    config: EmitEventStepConfig<O>
 ): ProcessingStep<T, void> {
     return function emitEventStep(input) {
         const { eventsToEmit, headers, message } = input
-        const { kafkaProducer, groupId } = config
+        const { outputs, groupId } = config
 
         // Record ingestion lag metric if we have the required data
         if (headers?.now && message?.topic !== undefined && message?.partition !== undefined) {
@@ -46,8 +42,9 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
         // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
         //       but it might slow the pipeline down. Historically, it has always been like that.
         //       We should investigate this later.
-        const sideEffects = eventsToEmit.map(({ event, topic }) =>
-            kafkaProducer
+        const sideEffects = eventsToEmit.map(({ event, output }) => {
+            const { topic, producer } = outputs.resolve(output)
+            return producer
                 .produce({
                     topic,
                     key: event.uuid,
@@ -67,7 +64,7 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
                     // Some messages end up significantly larger than the original
                     // after plugin processing, person & group enrichment, etc.
                     if (error instanceof MessageSizeTooLarge) {
-                        await captureIngestionWarning(kafkaProducer, event.team_id, 'message_size_too_large', {
+                        await captureIngestionWarning(producer, event.team_id, 'message_size_too_large', {
                             eventUuid: event.uuid,
                             distinctId: event.distinct_id,
                         })
@@ -75,7 +72,7 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
                         throw error
                     }
                 })
-        )
+        })
 
         return Promise.resolve(ok(undefined, sideEffects))
     }
