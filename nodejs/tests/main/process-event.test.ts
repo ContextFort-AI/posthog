@@ -134,7 +134,7 @@ describe('processEvent', () => {
             groupStoreForBatch
         )
         {
-            const createEventStep = createCreateEventStep()
+            const createEventStep = createCreateEventStep(hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC)
             const createResult = await createEventStep({
                 person,
                 preparedEvent,
@@ -147,7 +147,6 @@ describe('processEvent', () => {
             if (isOkResult(createResult)) {
                 const emitEventStep = createEmitEventStep({
                     kafkaProducer: hub.kafkaProducer,
-                    clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                     groupId: 'test-group-id',
                 })
                 const emitResult = await emitEventStep(createResult.value)

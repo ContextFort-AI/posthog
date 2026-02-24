@@ -7,19 +7,19 @@ import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export type ProcessAiEventStepInput = {
-    event: PluginEvent
+    normalizedEvent: PluginEvent
 }
 
 export function createProcessAiEventStep<TInput extends ProcessAiEventStepInput>(): ProcessingStep<TInput, TInput> {
     return function processAiEventStep(input) {
-        const { event } = input
+        const { normalizedEvent } = input
 
-        if (!AI_EVENT_TYPES.has(event.event)) {
+        if (!AI_EVENT_TYPES.has(normalizedEvent.event)) {
             return Promise.resolve(ok(input))
         }
 
         try {
-            return Promise.resolve(ok({ ...input, event: processAiEvent(event) }))
+            return Promise.resolve(ok({ ...input, normalizedEvent: processAiEvent(normalizedEvent) }))
         } catch (error) {
             captureException(error)
             logger.error(error)

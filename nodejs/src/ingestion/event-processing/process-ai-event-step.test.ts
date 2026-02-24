@@ -11,7 +11,7 @@ jest.mock('../ai', () => ({
 }))
 
 type TestInput = {
-    event: PluginEvent
+    normalizedEvent: PluginEvent
     extraField: string
 }
 
@@ -21,7 +21,7 @@ describe('createProcessAiEventStep', () => {
     })
 
     const createInput = (overrides: Partial<TestInput> = {}): TestInput => ({
-        event: createTestPluginEvent(),
+        normalizedEvent: createTestPluginEvent(),
         extraField: 'preserved',
         ...overrides,
     })
@@ -29,14 +29,14 @@ describe('createProcessAiEventStep', () => {
     it.each(['$pageview', '$autocapture', 'custom_event'])(
         'should pass through non-AI event %s unchanged',
         async (eventName) => {
-            const input = createInput({ event: createTestPluginEvent({ event: eventName }) })
+            const input = createInput({ normalizedEvent: createTestPluginEvent({ event: eventName }) })
             const step = createProcessAiEventStep<TestInput>()
 
             const result = await step(input)
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.event).toBe(input.event)
+                expect(result.value.normalizedEvent).toBe(input.normalizedEvent)
                 expect(result.value.extraField).toBe('preserved')
             }
             expect(processAiEvent).not.toHaveBeenCalled()
@@ -51,11 +51,11 @@ describe('createProcessAiEventStep', () => {
             jest.mocked(processAiEvent).mockReturnValue(enrichedEvent)
 
             const step = createProcessAiEventStep<TestInput>()
-            const result = await step(createInput({ event: aiEvent }))
+            const result = await step(createInput({ normalizedEvent: aiEvent }))
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.event).toBe(enrichedEvent)
+                expect(result.value.normalizedEvent).toBe(enrichedEvent)
                 expect(result.value.extraField).toBe('preserved')
             }
             expect(processAiEvent).toHaveBeenCalledWith(aiEvent)
@@ -69,11 +69,11 @@ describe('createProcessAiEventStep', () => {
         })
 
         const step = createProcessAiEventStep<TestInput>()
-        const result = await step(createInput({ event: aiEvent }))
+        const result = await step(createInput({ normalizedEvent: aiEvent }))
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
-            expect(result.value.event).toBe(aiEvent)
+            expect(result.value.normalizedEvent).toBe(aiEvent)
         }
     })
 })
