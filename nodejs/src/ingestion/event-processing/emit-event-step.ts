@@ -9,6 +9,10 @@ import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
+// TODO: Create a Kafka destination registry. EventToEmit should use a type-safe destination enum
+//       (e.g. 'events' | 'ai_events') instead of raw topic strings. The ingestion consumer sets up
+//       the registry mapping destination names to topic names and producer instances, decoupling
+//       Kafka infrastructure from event destinations.
 export interface EventToEmit {
     event: RawKafkaEvent
     topic: string
@@ -47,6 +51,9 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
                 .produce({
                     topic,
                     key: event.uuid,
+                    // TODO: Build a ClickHouse Kafka serializer here and remove JSON encoding
+                    //       from upstream steps (create-event, split-ai-events) to avoid
+                    //       redundant parse/serialize round-trips.
                     value: Buffer.from(JSON.stringify(event)),
                     headers: { productTrack: productTrackHeader(event) },
                 })

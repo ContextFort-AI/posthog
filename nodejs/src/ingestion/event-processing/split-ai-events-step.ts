@@ -26,8 +26,6 @@ function maybeStripAiProperties(entry: EventToEmit, aiEventsTopic: string): Even
         return [entry]
     }
 
-    // TODO: review whether we can serialize in emit-event-step instead, to avoid
-    //       parsing and re-serializing properties here
     const properties: Record<string, unknown> = entry.event.properties ? parseJSON(entry.event.properties) : {}
 
     let hasLarge = false
