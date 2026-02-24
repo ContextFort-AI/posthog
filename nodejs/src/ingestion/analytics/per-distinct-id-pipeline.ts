@@ -7,6 +7,8 @@ import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { AI_EVENT_TYPES } from '../ai'
+import { createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
@@ -42,17 +44,16 @@ export interface PerDistinctIdPipelineContext {
     team: Team
 }
 
-type EventBranch = 'client_ingestion_warning' | 'heatmap' | 'event'
+type EventBranch = 'client_ingestion_warning' | 'heatmap' | 'ai' | 'event'
+
+const EVENT_BRANCH_MAP = new Map<string, EventBranch>([
+    ['$$client_ingestion_warning', 'client_ingestion_warning'],
+    ['$$heatmap', 'heatmap'],
+    ...[...AI_EVENT_TYPES].map((t) => [t, 'ai'] as const),
+])
 
 function classifyEvent(input: PerDistinctIdPipelineInput): EventBranch {
-    switch (input.event.event) {
-        case '$$client_ingestion_warning':
-            return 'client_ingestion_warning'
-        case '$$heatmap':
-            return 'heatmap'
-        default:
-            return 'event'
-    }
+    return EVENT_BRANCH_MAP.get(input.event.event) ?? 'event'
 }
 
 export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipelineInput, TContext>(
@@ -83,6 +84,19 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             groupTypeManager,
                             groupStore,
                             kafkaProducer,
+                        })
+                    )
+                    .branch('ai', (b) =>
+                        createAiEventSubpipeline(b, {
+                            options,
+                            teamManager,
+                            groupTypeManager,
+                            hogTransformer,
+                            personsStore,
+                            groupStore,
+                            kafkaProducer,
+                            groupId,
+                            topHog,
                         })
                     )
                     .branch('event', (b) =>
