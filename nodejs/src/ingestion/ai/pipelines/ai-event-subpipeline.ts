@@ -38,7 +38,7 @@ export function createAiEventSubpipeline<TInput extends EventSubpipelineInput, T
         .pipe(createProcessAiEventStep())
         .pipe(createProcessPersonlessStep(personsStore))
         .pipe(createProcessPersonsStep(options, kafkaProducer, personsStore))
-        .pipe(createPrepareEventStep(kafkaProducer, teamManager, groupTypeManager, groupStore, options))
+        .pipe(createPrepareEventStep(teamManager, groupTypeManager, groupStore, options))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(createSplitAiEventsStep())
         .pipe(

@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
@@ -6,11 +7,12 @@ import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, ProjectId, RawKafkaEvent, TimestampFormat } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
+import { parseJSON } from '../../utils/json-parse'
 import { castTimestampOrNow } from '../../utils/utils'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { isOkResult } from '../pipelines/results'
-import { EmitEventStepInput, createEmitEventStep, productTrackHeader } from './emit-event-step'
+import { EmitEventStepInput, ProcessedEvent, createEmitEventStep, productTrackHeader } from './emit-event-step'
 import { EVENTS_OUTPUT, IngestionOutputs } from './ingestion-outputs'
 
 jest.mock('../../worker/ingestion/utils', () => ({
@@ -43,9 +45,15 @@ const mockIngestionLagHistogram = jest.mocked(ingestionLagHistogram)
 
 describe('emit-event-step', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
-    let mockRawEvent: RawKafkaEvent
+    let mockEvent: ProcessedEvent
     let mockHeaders: EventHeaders
     let mockMessage: Message
+
+    const testTimestamp = DateTime.fromISO('2023-01-01T00:00:00.000Z')
+
+    // The RawKafkaEvent that serializeEvent should produce from mockEvent.
+    // This is the same shape the old tests used — the Kafka output hasn't changed.
+    let expectedRawEvent: RawKafkaEvent
 
     beforeEach(() => {
         mockHeaders = createTestEventHeaders()
@@ -58,23 +66,40 @@ describe('emit-event-step', () => {
             disconnect: jest.fn().mockResolvedValue(undefined),
         } as any
 
-        const testTimestamp = castTimestampOrNow('2023-01-01T00:00:00.000Z', TimestampFormat.ClickHouse)
-
-        mockRawEvent = {
+        mockEvent = {
             uuid: 'test-uuid',
             event: 'test-event',
-            properties: JSON.stringify({ test: 'property' }),
+            properties: { test: 'property' },
             timestamp: testTimestamp,
             team_id: 1,
             project_id: 1 as ProjectId,
             distinct_id: 'test-distinct-id',
             elements_chain: '',
             created_at: testTimestamp,
+            captured_at: null,
             person_id: 'person-uuid',
-            person_properties: JSON.stringify({}),
+            person_properties: {},
             person_created_at: testTimestamp,
             person_mode: 'full',
             historical_migration: false,
+        }
+
+        const chTimestamp = castTimestampOrNow(testTimestamp, TimestampFormat.ClickHouse)
+        expectedRawEvent = {
+            uuid: 'test-uuid',
+            event: 'test-event',
+            properties: JSON.stringify({ test: 'property' }),
+            timestamp: chTimestamp,
+            team_id: 1,
+            project_id: 1 as ProjectId,
+            distinct_id: 'test-distinct-id',
+            elements_chain: '',
+            created_at: chTimestamp,
+            captured_at: null,
+            person_id: 'person-uuid',
+            person_properties: JSON.stringify({}),
+            person_created_at: castTimestampOrNow(testTimestamp, TimestampFormat.ClickHouseSecondPrecision),
+            person_mode: 'full',
         }
     })
 
@@ -90,11 +115,16 @@ describe('emit-event-step', () => {
     }
 
     const createInput = (overrides: Partial<EmitEventStepInput> = {}): EmitEventStepInput => ({
-        eventsToEmit: [{ event: mockRawEvent, output: EVENTS_OUTPUT }],
+        eventsToEmit: [{ event: mockEvent, output: EVENTS_OUTPUT }],
         headers: mockHeaders,
         message: mockMessage,
         ...overrides,
     })
+
+    function producedValue(callIndex = 0): Record<string, unknown> {
+        const call = mockKafkaProducer.produce.mock.calls[callIndex]
+        return parseJSON(call[0].value!.toString())
+    }
 
     describe('createEmitEventStep', () => {
         it('should emit a single event to its output topic', async () => {
@@ -109,7 +139,7 @@ describe('emit-event-step', () => {
             expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
                 topic: 'clickhouse_events_json',
                 key: 'test-uuid',
-                value: Buffer.from(JSON.stringify(mockRawEvent)),
+                value: Buffer.from(JSON.stringify(expectedRawEvent)),
                 headers: { productTrack: 'general' },
             })
 
@@ -118,7 +148,8 @@ describe('emit-event-step', () => {
         })
 
         it('should emit multiple events to their respective output topics', async () => {
-            const secondEvent = { ...mockRawEvent, uuid: 'second-uuid', event: '$ai_generation' }
+            const secondEvent: ProcessedEvent = { ...mockEvent, uuid: 'second-uuid', event: '$ai_generation' }
+            const expectedSecondRaw = { ...expectedRawEvent, uuid: 'second-uuid', event: '$ai_generation' }
             const outputs = createOutputs({
                 events: { topic: 'clickhouse_events_json' },
                 ai_events: { topic: 'clickhouse_ai_events_json' },
@@ -130,7 +161,7 @@ describe('emit-event-step', () => {
             const result = await step(
                 createInput({
                     eventsToEmit: [
-                        { event: mockRawEvent, output: 'events' },
+                        { event: mockEvent, output: 'events' },
                         { event: secondEvent, output: 'ai_events' },
                     ],
                 })
@@ -141,13 +172,13 @@ describe('emit-event-step', () => {
             expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
                 topic: 'clickhouse_events_json',
                 key: 'test-uuid',
-                value: Buffer.from(JSON.stringify(mockRawEvent)),
+                value: Buffer.from(JSON.stringify(expectedRawEvent)),
                 headers: { productTrack: 'general' },
             })
             expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
                 topic: 'clickhouse_ai_events_json',
                 key: 'second-uuid',
-                value: Buffer.from(JSON.stringify(secondEvent)),
+                value: Buffer.from(JSON.stringify(expectedSecondRaw)),
                 headers: { productTrack: 'llma' },
             })
 
@@ -205,7 +236,7 @@ describe('emit-event-step', () => {
         })
 
         it('should increment metric once per event in list', async () => {
-            const secondEvent = { ...mockRawEvent, uuid: 'second-uuid' }
+            const secondEvent = { ...mockEvent, uuid: 'second-uuid' }
             const outputs = createOutputs({
                 dest_a: { topic: 'topic_a' },
                 dest_b: { topic: 'topic_b' },
@@ -217,7 +248,7 @@ describe('emit-event-step', () => {
             const result = await step(
                 createInput({
                     eventsToEmit: [
-                        { event: mockRawEvent, output: 'dest_a' },
+                        { event: mockEvent, output: 'dest_a' },
                         { event: secondEvent, output: 'dest_b' },
                     ],
                 })
@@ -245,19 +276,64 @@ describe('emit-event-step', () => {
         })
 
         it('should emit AI events with llma product track header', async () => {
-            const aiEvent = { ...mockRawEvent, event: '$ai_generation' }
+            const aiEvent = { ...mockEvent, event: '$ai_generation' }
             const step = createEmitEventStep({
                 outputs: createOutputs(),
                 groupId: 'test-group-id',
             })
             await step(createInput({ eventsToEmit: [{ event: aiEvent, output: EVENTS_OUTPUT }] }))
 
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-                topic: 'clickhouse_events_json',
-                key: aiEvent.uuid,
-                value: Buffer.from(JSON.stringify(aiEvent)),
-                headers: { productTrack: 'llma' },
+            expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(1)
+            expect(mockKafkaProducer.produce.mock.calls[0][0].topic).toBe('clickhouse_events_json')
+            expect(mockKafkaProducer.produce.mock.calls[0][0].key).toBe(aiEvent.uuid)
+            expect(mockKafkaProducer.produce.mock.calls[0][0].headers).toEqual({ productTrack: 'llma' })
+            expect(producedValue()).toMatchObject({ event: '$ai_generation' })
+        })
+
+        it('should serialize properties and person_properties as nested JSON strings', async () => {
+            mockEvent.properties = { $browser: 'Chrome', nested: { a: 1 } }
+            mockEvent.person_properties = { email: 'test@example.com' }
+
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
             })
+            await step(createInput())
+
+            const raw = producedValue()
+            expect(typeof raw.properties).toBe('string')
+            expect(typeof raw.person_properties).toBe('string')
+            expect(parseJSON(raw.properties as string)).toEqual({ $browser: 'Chrome', nested: { a: 1 } })
+            expect(parseJSON(raw.person_properties as string)).toEqual({ email: 'test@example.com' })
+        })
+
+        it('should apply safeClickhouseString to string fields', async () => {
+            // Surrogate pair character that safeClickhouseString escapes
+            mockEvent.event = 'test\ud800event'
+            mockEvent.distinct_id = 'user\ud800id'
+
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
+            await step(createInput())
+
+            const raw = producedValue()
+            expect(raw.event).not.toContain('\ud800')
+            expect(raw.distinct_id).not.toContain('\ud800')
+        })
+
+        it('should format timestamps to ClickHouse format', async () => {
+            const step = createEmitEventStep({
+                outputs: createOutputs(),
+                groupId: 'test-group-id',
+            })
+            await step(createInput())
+
+            const raw = producedValue()
+            expect(raw.timestamp).toBe('2023-01-01 00:00:00.000')
+            expect(raw.created_at).toBe('2023-01-01 00:00:00.000')
+            expect(raw.person_created_at).toBe('2023-01-01 00:00:00')
         })
     })
 
@@ -268,7 +344,7 @@ describe('emit-event-step', () => {
             { event: '$pageview', expected: 'general' },
             { event: 'user_signed_up', expected: 'general' },
         ])('should return "$expected" for $event', ({ event, expected }) => {
-            expect(productTrackHeader({ ...mockRawEvent, event })).toBe(expected)
+            expect(productTrackHeader({ ...mockEvent, event })).toBe(expected)
         })
     })
 

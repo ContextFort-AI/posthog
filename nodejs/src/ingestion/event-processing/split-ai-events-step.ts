@@ -1,8 +1,6 @@
-import { RawKafkaEvent } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
-import { EventToEmit } from './emit-event-step'
+import { EventToEmit, ProcessedEvent } from './emit-event-step'
 import { AI_EVENTS_OUTPUT } from './ingestion-outputs'
 
 const LARGE_AI_PROPERTIES = new Set([
@@ -23,7 +21,7 @@ function maybeStripAiProperties<O extends string>(entry: EventToEmit<O>): EventT
         return [entry]
     }
 
-    const properties: Record<string, unknown> = entry.event.properties ? parseJSON(entry.event.properties) : {}
+    const properties = entry.event.properties ?? {}
 
     let hasLarge = false
     for (const key of LARGE_AI_PROPERTIES) {
@@ -44,7 +42,7 @@ function maybeStripAiProperties<O extends string>(entry: EventToEmit<O>): EventT
         }
     }
 
-    const strippedEvent: RawKafkaEvent = { ...entry.event, properties: JSON.stringify(stripped) }
+    const strippedEvent: ProcessedEvent = { ...entry.event, properties: stripped }
 
     return [
         { event: strippedEvent, output: entry.output },

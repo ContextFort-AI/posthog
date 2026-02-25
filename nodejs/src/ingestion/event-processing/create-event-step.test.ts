@@ -4,7 +4,6 @@ import { Message } from 'node-rdkafka'
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { Person, PersonMode, PreIngestionEvent, ProjectId, TimestampFormat } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isOkResult } from '../pipelines/results'
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
@@ -63,7 +62,7 @@ describe('create-event-step', () => {
                 expect(eventToEmit.distinct_id).toBe('distinct-id-789')
                 expect(eventToEmit.person_id).toBe('person-uuid-123')
                 expect(eventToEmit.person_mode).toBe('full')
-                expect(parseJSON(eventToEmit.person_properties || '{}')).toEqual({
+                expect(eventToEmit.person_properties).toEqual({
                     email: 'test@example.com',
                     name: 'Test User',
                 })
@@ -91,7 +90,7 @@ describe('create-event-step', () => {
                 expect(value.eventsToEmit).toHaveLength(1)
                 const eventToEmit = value.eventsToEmit[0].event
                 expect(eventToEmit.person_mode).toBe('propertyless')
-                expect(eventToEmit.person_properties).toBe('{}')
+                expect(eventToEmit.person_properties).toEqual({})
             }
             expect(result.sideEffects).toHaveLength(0)
         })
@@ -151,8 +150,7 @@ describe('create-event-step', () => {
                 const value = result.value
                 expect(value.eventsToEmit).toHaveLength(1)
                 const eventToEmit = value.eventsToEmit[0].event
-                const personProperties = parseJSON(eventToEmit.person_properties || '{}')
-                expect(personProperties).toEqual({
+                expect(eventToEmit.person_properties).toEqual({
                     email: 'test@example.com',
                     name: 'Test User',
                     new_property: 'new_value',
@@ -160,7 +158,7 @@ describe('create-event-step', () => {
             }
         })
 
-        it('should preserve event properties as JSON string', async () => {
+        it('should preserve event properties as object', async () => {
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
@@ -179,8 +177,7 @@ describe('create-event-step', () => {
                 const value = result.value
                 expect(value.eventsToEmit).toHaveLength(1)
                 const eventToEmit = value.eventsToEmit[0].event
-                expect(typeof eventToEmit.properties).toBe('string')
-                expect(parseJSON(eventToEmit.properties || '{}')).toEqual({
+                expect(eventToEmit.properties).toEqual({
                     $current_url: 'https://example.com',
                 })
             }
@@ -263,8 +260,8 @@ describe('create-event-step', () => {
                 expect(value.eventsToEmit).toHaveLength(1)
                 const eventToEmit = value.eventsToEmit[0].event
                 expect(eventToEmit.timestamp).toBeTruthy()
-                expect(eventToEmit.created_at).toBeTruthy()
-                expect(eventToEmit.person_created_at).toBeTruthy()
+                expect(eventToEmit.created_at).toBeNull()
+                expect(eventToEmit.person_created_at).toBeInstanceOf(DateTime)
             }
         })
 
