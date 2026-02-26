@@ -26,6 +26,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
+import { ErrorTrackingConsumer } from './ingestion/error-tracking-consumer'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
@@ -302,6 +303,14 @@ export class PluginServer {
             if (capabilities.logsIngestion) {
                 serviceLoaders.push(async () => {
                     const consumer = new LogsIngestionConsumer(hub, hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.errorTrackingIngestion) {
+                serviceLoaders.push(async () => {
+                    const consumer = new ErrorTrackingConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })
