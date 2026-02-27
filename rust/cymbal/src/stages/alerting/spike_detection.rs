@@ -18,13 +18,55 @@ use crate::metric_consts::{
 
 const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
-const SPIKE_MULTIPLIER: f64 = 10.0;
 const NUM_BUCKETS: usize = 12;
-const SPIKE_ALERT_COOLDOWN_SECONDS: usize = 10 * 60;
+
+const DEFAULT_SPIKE_MULTIPLIER: f64 = 10.0;
+const DEFAULT_MIN_SPIKE_THRESHOLD: i64 = 500;
+const DEFAULT_SPIKE_ALERT_COOLDOWN_SECONDS: usize = 10 * 60;
 
 const ISSUE_SPIKING_EVENT: &str = "$error_tracking_issue_spiking";
 const MIN_HISTORICAL_BUCKETS_FOR_ISSUE_BASELINE: usize = 1;
-const MIN_SPIKE_THRESHOLD: i64 = 500;
+
+#[derive(Debug, Clone)]
+pub struct SpikeDetectionConfig {
+    pub multiplier: f64,
+    pub threshold: i64,
+    pub snooze_duration_seconds: usize,
+}
+
+impl Default for SpikeDetectionConfig {
+    fn default() -> Self {
+        Self {
+            multiplier: DEFAULT_SPIKE_MULTIPLIER,
+            threshold: DEFAULT_MIN_SPIKE_THRESHOLD,
+            snooze_duration_seconds: DEFAULT_SPIKE_ALERT_COOLDOWN_SECONDS,
+        }
+    }
+}
+
+impl SpikeDetectionConfig {
+    pub async fn load_for_team<'c, E>(conn: E, team_id: i32) -> Result<Option<Self>, sqlx::Error>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let row = sqlx::query!(
+            r#"
+                SELECT multiplier, threshold, snooze_duration_minutes
+                FROM posthog_errortrackingspikedetectionconfig
+                WHERE team_id = $1
+            "#,
+            team_id
+        )
+        .fetch_optional(conn)
+        .await?;
+
+        Ok(row.map(|r| Self {
+            multiplier: r.multiplier as f64,
+            threshold: r.threshold as i64,
+            snooze_duration_seconds: (r.snooze_duration_minutes * 60) as usize,
+        }))
+    }
+}
 
 fn issue_bucket_key(issue_id: &Uuid, timestamp: &str) -> String {
     format!("issue-buckets:{issue_id}-{timestamp}")
@@ -194,6 +236,31 @@ pub async fn do_spike_detection(
         .filter(|(id, _)| issues_by_id.contains_key(id))
         .collect();
 
+    // Fetch spike detection config for each unique team
+    let unique_team_ids: Vec<i32> = issues_by_id
+        .values()
+        .map(|i| i.team_id)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    let mut team_configs: HashMap<i32, SpikeDetectionConfig> = HashMap::new();
+    for team_id in unique_team_ids {
+        match context
+            .team_manager
+            .get_spike_detection_config(&context.posthog_pool, team_id)
+            .await
+        {
+            Ok(config) => {
+                team_configs.insert(team_id, config);
+            }
+            Err(err) => {
+                warn!("Failed to load spike detection config for team {team_id}: {err}, using defaults");
+                team_configs.insert(team_id, SpikeDetectionConfig::default());
+            }
+        }
+    }
+
     let issue_buckets_timer = common_metrics::timing_guard(SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, &[]);
     try_increment_issue_buckets(&*context.issue_buckets_redis_client, &issue_counts).await;
     issue_buckets_timer.fin();
@@ -210,11 +277,17 @@ pub async fn do_spike_detection(
     metrics::counter!(SPIKE_ISSUES_CHECKED).increment(issues_by_id.len() as u64);
 
     let get_spiking_timer = common_metrics::timing_guard(SPIKE_GET_SPIKING_ISSUES_TIME, &[]);
-    match get_spiking_issues(&*context.issue_buckets_redis_client, &issues_by_id).await {
+    match get_spiking_issues(
+        &*context.issue_buckets_redis_client,
+        &issues_by_id,
+        &team_configs,
+    )
+    .await
+    {
         Ok(spiking) => {
             get_spiking_timer.fin();
             metrics::counter!(SPIKE_ISSUES_SPIKING).increment(spiking.len() as u64);
-            emit_spiking_events(&context, spiking).await;
+            emit_spiking_events(&context, spiking, &team_configs).await;
         }
         Err(err) => {
             get_spiking_timer.fin();
@@ -235,20 +308,65 @@ fn parse_enabled_team_ids(config_value: &str) -> Option<Vec<i32>> {
     )
 }
 
-async fn emit_spiking_events(context: &AppContext, spiking: Vec<SpikingIssue>) {
+/// Acquires NX EX locks with potentially different TTLs per item.
+/// Groups items by TTL to minimize round trips while preserving result ordering.
+async fn acquire_cooldown_locks(
+    redis: &(dyn Client + Send + Sync),
+    items: &[(String, usize)],
+) -> Result<Vec<bool>, common_redis::CustomRedisError> {
+    if items.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Group indices by TTL
+    let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (idx, (_, ttl)) in items.iter().enumerate() {
+        groups.entry(*ttl).or_default().push(idx);
+    }
+
+    let mut results = vec![false; items.len()];
+
+    for (ttl, indices) in groups {
+        let batch: Vec<(String, String)> = indices
+            .iter()
+            .map(|&i| (items[i].0.clone(), "1".to_string()))
+            .collect();
+        let batch_results = redis.batch_set_nx_ex(batch, ttl).await?;
+        for (idx, acquired) in indices.into_iter().zip(batch_results) {
+            results[idx] = acquired;
+        }
+    }
+
+    Ok(results)
+}
+
+async fn emit_spiking_events(
+    context: &AppContext,
+    spiking: Vec<SpikingIssue>,
+    team_configs: &HashMap<i32, SpikeDetectionConfig>,
+) {
     if spiking.is_empty() {
         return;
     }
 
     let locks_timer = common_metrics::timing_guard(SPIKE_ACQUIRE_LOCKS_TIME, &[]);
-    let cooldown_items: Vec<(String, String)> = spiking
+    let cooldown_items: Vec<(String, usize)> = spiking
         .iter()
-        .map(|s| (cooldown_key(&s.issue.id), "1".to_string()))
+        .map(|s| {
+            let cooldown = team_configs
+                .get(&s.issue.team_id)
+                .map_or(DEFAULT_SPIKE_ALERT_COOLDOWN_SECONDS, |c| {
+                    c.snooze_duration_seconds
+                });
+            (cooldown_key(&s.issue.id), cooldown)
+        })
         .collect();
-    let lock_results = match context
-        .issue_buckets_redis_client
-        .batch_set_nx_ex(cooldown_items, SPIKE_ALERT_COOLDOWN_SECONDS)
-        .await
+
+    let lock_results = match acquire_cooldown_locks(
+        &*context.issue_buckets_redis_client,
+        &cooldown_items,
+    )
+    .await
     {
         Ok(results) => results,
         Err(e) => {
@@ -379,16 +497,17 @@ fn compute_issue_baseline(historical_buckets: &[Option<i64>], team_baseline: f64
     }
 }
 
-fn is_spiking(current_value: i64, baseline: f64) -> bool {
-    if current_value < MIN_SPIKE_THRESHOLD {
+fn is_spiking(current_value: i64, baseline: f64, config: &SpikeDetectionConfig) -> bool {
+    if current_value < config.threshold {
         return false;
     }
-    current_value as f64 > baseline * SPIKE_MULTIPLIER
+    current_value as f64 > baseline * config.multiplier
 }
 
 async fn get_spiking_issues(
     redis: &(dyn Client + Send + Sync),
     issues_by_id: &HashMap<Uuid, Issue>,
+    team_configs: &HashMap<i32, SpikeDetectionConfig>,
 ) -> Result<Vec<SpikingIssue>, common_redis::CustomRedisError> {
     if issues_by_id.is_empty() {
         return Ok(vec![]);
@@ -409,6 +528,7 @@ async fn get_spiking_issues(
 
     let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
 
+    let default_config = SpikeDetectionConfig::default();
     let spiking = issue_buckets
         .iter()
         .filter_map(|bucket| {
@@ -418,8 +538,11 @@ async fn get_spiking_issues(
             let historical = &bucket.values[1..];
             let team_baseline = *team_baselines.get(&issue.team_id).unwrap_or(&0.0);
             let baseline = compute_issue_baseline(historical, team_baseline);
+            let config = team_configs
+                .get(&issue.team_id)
+                .unwrap_or(&default_config);
 
-            if is_spiking(current_value, baseline) {
+            if is_spiking(current_value, baseline, config) {
                 Some(SpikingIssue {
                     issue: issue.clone(),
                     computed_baseline: baseline,
@@ -591,7 +714,8 @@ mod tests {
         }
 
         async fn get_spiking(&self) -> Vec<SpikingIssue> {
-            get_spiking_issues(&self.redis, &self.issues_by_id())
+            let configs = HashMap::from([(self.team_id, SpikeDetectionConfig::default())]);
+            get_spiking_issues(&self.redis, &self.issues_by_id(), &configs)
                 .await
                 .unwrap()
         }
@@ -1014,7 +1138,13 @@ mod tests {
             redis.scard_ret(&team_issue_set_key(team_2, ts), Ok(0));
         }
 
-        let result = get_spiking_issues(&redis, &issues_by_id).await.unwrap();
+        let configs = HashMap::from([
+            (team_1, SpikeDetectionConfig::default()),
+            (team_2, SpikeDetectionConfig::default()),
+        ]);
+        let result = get_spiking_issues(&redis, &issues_by_id, &configs)
+            .await
+            .unwrap();
 
         // Should have 3 spiking issues: A, B, E
         assert_eq!(result.len(), 3);
