@@ -13,7 +13,7 @@ use crate::{
     metric_consts::ANCILLARY_CACHE,
     pipeline::IncomingEvent,
     sanitize_string,
-    stages::alerting::spike_detection::SpikeDetectionConfig,
+    spike_config::SpikeDetectionConfig,
     WithIndices,
 };
 

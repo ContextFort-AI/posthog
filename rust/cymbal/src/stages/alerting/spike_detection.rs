@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::app_context::AppContext;
 use crate::issue_resolution::Issue;
+use crate::spike_config::SpikeDetectionConfig;
 use crate::metric_consts::{
     SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_EMIT_EVENTS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME,
     SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
@@ -20,53 +21,10 @@ const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
 const NUM_BUCKETS: usize = 12;
 
-const DEFAULT_SPIKE_MULTIPLIER: f64 = 10.0;
-const DEFAULT_MIN_SPIKE_THRESHOLD: i64 = 500;
 const DEFAULT_SPIKE_ALERT_COOLDOWN_SECONDS: usize = 10 * 60;
 
 const ISSUE_SPIKING_EVENT: &str = "$error_tracking_issue_spiking";
 const MIN_HISTORICAL_BUCKETS_FOR_ISSUE_BASELINE: usize = 1;
-
-#[derive(Debug, Clone)]
-pub struct SpikeDetectionConfig {
-    pub multiplier: f64,
-    pub threshold: i64,
-    pub snooze_duration_seconds: usize,
-}
-
-impl Default for SpikeDetectionConfig {
-    fn default() -> Self {
-        Self {
-            multiplier: DEFAULT_SPIKE_MULTIPLIER,
-            threshold: DEFAULT_MIN_SPIKE_THRESHOLD,
-            snooze_duration_seconds: DEFAULT_SPIKE_ALERT_COOLDOWN_SECONDS,
-        }
-    }
-}
-
-impl SpikeDetectionConfig {
-    pub async fn load_for_team<'c, E>(conn: E, team_id: i32) -> Result<Option<Self>, sqlx::Error>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
-        let row = sqlx::query!(
-            r#"
-                SELECT multiplier, threshold, snooze_duration_minutes
-                FROM posthog_errortrackingspikedetectionconfig
-                WHERE team_id = $1
-            "#,
-            team_id
-        )
-        .fetch_optional(conn)
-        .await?;
-
-        Ok(row.map(|r| Self {
-            multiplier: r.multiplier as f64,
-            threshold: r.threshold as i64,
-            snooze_duration_seconds: (r.snooze_duration_minutes * 60) as usize,
-        }))
-    }
-}
 
 fn issue_bucket_key(issue_id: &Uuid, timestamp: &str) -> String {
     format!("issue-buckets:{issue_id}-{timestamp}")
@@ -236,7 +194,7 @@ pub async fn do_spike_detection(
         .filter(|(id, _)| issues_by_id.contains_key(id))
         .collect();
 
-    // Fetch spike detection config for each unique team
+    // Fetch spike detection config for each unique team concurrently
     let unique_team_ids: Vec<i32> = issues_by_id
         .values()
         .map(|i| i.team_id)
@@ -244,21 +202,27 @@ pub async fn do_spike_detection(
         .into_iter()
         .collect();
 
+    let config_tasks: Vec<_> = unique_team_ids
+        .into_iter()
+        .map(|team_id| {
+            let team_manager = context.team_manager.clone();
+            let pool = context.posthog_pool.clone();
+            let task = tokio::spawn(async move {
+                team_manager
+                    .get_spike_detection_config(&pool, team_id)
+                    .await
+            });
+            (team_id, task)
+        })
+        .collect();
+
     let mut team_configs: HashMap<i32, SpikeDetectionConfig> = HashMap::new();
-    for team_id in unique_team_ids {
-        match context
-            .team_manager
-            .get_spike_detection_config(&context.posthog_pool, team_id)
+    for (team_id, task) in config_tasks {
+        let config = task
             .await
-        {
-            Ok(config) => {
-                team_configs.insert(team_id, config);
-            }
-            Err(err) => {
-                warn!("Failed to load spike detection config for team {team_id}: {err}, using defaults");
-                team_configs.insert(team_id, SpikeDetectionConfig::default());
-            }
-        }
+            .expect("Task was not cancelled")
+            .unwrap_or_default();
+        team_configs.insert(team_id, config);
     }
 
     let issue_buckets_timer = common_metrics::timing_guard(SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, &[]);
