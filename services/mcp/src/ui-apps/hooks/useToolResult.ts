@@ -36,7 +36,7 @@ import {
     McpUiToolInputNotificationSchema,
     McpUiToolResultNotificationSchema,
     useApp,
-    useHostStyleVariables,
+    useHostStyles,
 } from '@modelcontextprotocol/ext-apps/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -151,7 +151,7 @@ export function useToolResult<T = unknown>({
                 const params = notification.params as typeof notification.params & { theme?: string }
                 captureHostContextChanged({
                     hasStyles: !!notification.params.styles,
-                    hasFonts: false, // fonts not available in current SDK schema
+                    hasFonts: !!notification.params.styles?.css?.fonts,
                     theme: params.theme,
                 })
             })
@@ -189,8 +189,8 @@ export function useToolResult<T = unknown>({
         },
     })
 
-    // Apply host styles
-    useHostStyleVariables(app)
+    // Apply host styles (CSS variables, theme, and fonts)
+    useHostStyles(app, app?.getHostContext())
 
     // Track connection state and errors
     useEffect(() => {

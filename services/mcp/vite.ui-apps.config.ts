@@ -15,6 +15,9 @@ const POSTHOG_MCP_APPS_ANALYTICS_BASE_URL =
 // Apps directory - all subdirectories with index.html are apps
 const APPS_DIR = resolve(__dirname, 'src/ui-apps/apps')
 
+// Single app mode: UI_APP env var selects which app to build
+const appName = process.env.UI_APP
+
 /**
  * Auto-discover UI apps from src/ui-apps/apps/
  */
@@ -34,17 +37,16 @@ function discoverApps(): string[] {
     return apps
 }
 
-// Get app name from env (set by build script) or undefined for multi-app mode
-const appName = process.env.UI_APP
-
 // Discover all apps for the inlining plugin
 const ALL_APPS = discoverApps()
 
 /**
  * Custom plugin that inlines JS and CSS into HTML files after the build.
+ * Each app becomes a single self-contained HTML file with no external references.
  */
 function inlineAllAssets(): Plugin {
     const outDir = resolve(__dirname, 'ui-apps-dist')
+
     // Only process the app being built (single-app mode)
     const appsToProcess = appName ? [appName] : ALL_APPS
 
@@ -92,7 +94,6 @@ function inlineAllAssets(): Plugin {
                     writeFileSync(htmlPath, html)
                     console.info(`[inline-all-assets] Inlined assets for ${app}`)
                 } catch (e) {
-                    // In single-app mode, only warn if the target app fails
                     if (app === appName) {
                         console.warn(`[inline-all-assets] Could not process ${app}:`, e)
                     }
@@ -112,8 +113,9 @@ function inlineAllAssets(): Plugin {
 /**
  * Vite config for building UI apps.
  *
- * In single-app mode (UI_APP env var set), builds one app with inlineDynamicImports.
- * This ensures each app is completely self-contained with no shared chunks.
+ * Each app is built separately (via UI_APP env var) with inlineDynamicImports
+ * to ensure fully self-contained HTML output with no shared chunks.
+ * The build script runs apps in parallel to minimize total build time.
  *
  * Environment variables:
  * - POSTHOG_UI_APPS_TOKEN: PostHog API token for analytics (optional)
@@ -137,7 +139,7 @@ export default defineConfig({
                 : Object.fromEntries(ALL_APPS.map((name) => [name, resolve(APPS_DIR, `${name}/index.html`)])),
             output: appName
                 ? {
-                      // Single app mode: inline everything into one bundle
+                      // Single app mode: inline everything into one bundle — no shared chunks
                       inlineDynamicImports: true,
                   }
                 : {},

@@ -1,0 +1,13 @@
+{
+    "compilerOptions": {
+        "target": "es2021",
+        "lib": ["es2021", "dom"],
+        "jsx": "react-jsx",
+        "module": "es2022",
+        "moduleResolution": "Bundler",
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true
+    },
+    "include": ["src/**/*.ts", "src/**/*.tsx", "storybook/**/*.ts", "storybook/**/*.tsx"]
+}

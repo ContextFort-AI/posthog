@@ -515,12 +515,12 @@
             "required": ["dashboardId", "data"],
             "additionalProperties": false
         },
-        "DemoMcpUiAppsSchema": {
+        "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {
                 "message": {
                     "type": "string",
-                    "description": "Optional message to include in the demo data"
+                    "description": "Optional message to include in the debug data"
                 }
             },
             "additionalProperties": false

@@ -6,9 +6,10 @@ import type { Context } from '@/tools/types'
 
 // Import bundled HTML at build time (wrangler Text rule)
 // Each UI app has its own HTML file in ui-apps-dist/src/ui-apps/apps/<name>/
-import demoHtml from '../../ui-apps-dist/src/ui-apps/apps/demo/index.html'
+import debugHtml from '../../ui-apps-dist/src/ui-apps/apps/debug/index.html'
+import featureFlagsHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flags/index.html'
 import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
-import { DEMO_RESOURCE_URI, QUERY_RESULTS_RESOURCE_URI } from './ui-apps-constants'
+import { DEBUG_RESOURCE_URI, FEATURE_FLAGS_RESOURCE_URI, QUERY_RESULTS_RESOURCE_URI } from './ui-apps-constants'
 
 /**
  * Registers UI app resources with the MCP server.
@@ -18,16 +19,18 @@ import { DEMO_RESOURCE_URI, QUERY_RESULTS_RESOURCE_URI } from './ui-apps-constan
  * Each tool type can have its own visualization registered here.
  */
 export async function registerUiAppResources(server: McpServer, context: Context): Promise<void> {
-    registerDemoApp(server, context) // Demo app - used by demo-mcp-ui-apps tool for testing
+    registerDebugApp(server, context) // Debug app - used by debug-mcp-ui-apps tool for testing
     registerQueryResultsApp(server, context) // Query Results - used by query-run and insight-query tools
+    registerFeatureFlagsApp(server, context) // Feature Flags - used by feature-flag-get-definition tool
 }
 
-function registerDemoApp(server: McpServer, context: Context): void {
+function registerDebugApp(server: McpServer, context: Context): void {
     registerApp(server, context, {
-        name: 'MCP Apps Demo',
-        uri: DEMO_RESOURCE_URI,
-        description: 'Demo app for testing MCP Apps SDK integration - displays SDK events and tool data',
-        html: demoHtml,
+        name: 'MCP Apps Debug',
+        uri: DEBUG_RESOURCE_URI,
+        description:
+            'Debug app for testing MCP Apps SDK integration - displays SDK events, tool data, and component showcase',
+        html: debugHtml,
     })
 }
 
@@ -37,6 +40,15 @@ function registerQueryResultsApp(server: McpServer, context: Context): void {
         uri: QUERY_RESULTS_RESOURCE_URI,
         description: 'Interactive visualization for PostHog query results (trends, funnels, tables)',
         html: queryResultsHtml,
+    })
+}
+
+function registerFeatureFlagsApp(server: McpServer, context: Context): void {
+    registerApp(server, context, {
+        name: 'Feature Flags',
+        uri: FEATURE_FLAGS_RESOURCE_URI,
+        description: 'Feature flag detail view with release conditions, variants, and property filters',
+        html: featureFlagsHtml,
     })
 }
 
@@ -72,4 +84,4 @@ function registerApp(server: McpServer, context: Context, { name, uri, descripti
 }
 
 // Re-export for tools to import
-export { QUERY_RESULTS_RESOURCE_URI, DEMO_RESOURCE_URI }
+export { QUERY_RESULTS_RESOURCE_URI, DEBUG_RESOURCE_URI, FEATURE_FLAGS_RESOURCE_URI }
