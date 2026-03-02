@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Tooltip } from '../../base/Tooltip'
+import { Tooltip } from '@posthog/mosaic'
+
 import { RolloutBar } from './RolloutBar'
 
 export interface Variant {

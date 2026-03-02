@@ -22,7 +22,11 @@
         "baseUrl": ".",
         "paths": {
             "@/*": ["src/*", "tests/*"],
-            "@shared/*": ["shared/*"]
+            "@shared/*": ["shared/*"],
+            "@posthog/mosaic": ["../../common/mosaic/src/index.ts"],
+            "@posthog/mosaic/*": ["../../common/mosaic/src/*"],
+            "@products/*": ["../../products/*"],
+            "@common/*": ["../../common/*"]
         }
     },
     "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],

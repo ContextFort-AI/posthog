@@ -123,6 +123,13 @@ function inlineAllAssets(): Plugin {
  */
 export default defineConfig({
     plugins: [react(), inlineAllAssets()],
+    resolve: {
+        alias: {
+            '@posthog/mosaic': resolve(__dirname, '../../common/mosaic/src'),
+            '@products': resolve(__dirname, '../../products'),
+            '@common': resolve(__dirname, '../../common'),
+        },
+    },
     define: {
         // Inject PostHog configuration at build time
         __POSTHOG_UI_APPS_TOKEN__: JSON.stringify(POSTHOG_UI_APPS_TOKEN),

@@ -1,7 +1,7 @@
+import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
 import type { Meta, StoryFn } from '@storybook/react'
 
-import { type FeatureFlagData, FeatureFlagView } from '../src/index'
-import { McpThemeDecorator } from './decorator'
+import { type FeatureFlagData, FeatureFlagView } from './index'
 
 const meta: Meta = {
     title: 'Mosaic/Feature Flags',

@@ -1,7 +1,6 @@
 import type { ReactElement } from 'react'
 
-import { Badge } from '../../base/Badge'
-import { Tooltip } from '../../base/Tooltip'
+import { Badge, Tooltip } from '@posthog/mosaic'
 
 export interface PropertyFilter {
     key: string

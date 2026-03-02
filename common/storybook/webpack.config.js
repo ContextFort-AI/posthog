@@ -82,6 +82,8 @@ function createEntry(entry) {
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
                 process: 'process/browser',
                 products: path.resolve(__dirname, '..', '..', 'products'),
+                '@products': path.resolve(__dirname, '..', '..', 'products'),
+                '@common': path.resolve(__dirname, '..', '..', 'common'),
                 react: path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'react'),
                 'react-dom': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'react-dom'),
                 kea: path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'kea'),

@@ -1,9 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Badge } from '../../base/Badge'
-import { Card } from '../../base/Card'
-import { Stack } from '../../base/Stack'
-import { Tooltip } from '../../base/Tooltip'
+import { Badge, Card, Stack, Tooltip } from '@posthog/mosaic'
+
 import { PropertyFilterList, type PropertyFilter } from './PropertyFilterList'
 import { RolloutBar } from './RolloutBar'
 import { VariantTable, type Variant } from './VariantTable'

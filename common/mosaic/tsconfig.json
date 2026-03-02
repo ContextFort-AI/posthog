@@ -7,7 +7,14 @@
         "moduleResolution": "Bundler",
         "strict": true,
         "noEmit": true,
-        "skipLibCheck": true
+        "skipLibCheck": true,
+        "baseUrl": ".",
+        "paths": {
+            "@posthog/mosaic": ["src/index.ts"],
+            "@posthog/mosaic/*": ["src/*"],
+            "@products/*": ["../../products/*"],
+            "@common/*": ["../*"]
+        }
     },
     "include": ["src/**/*.ts", "src/**/*.tsx", "storybook/**/*.ts", "storybook/**/*.tsx"]
 }

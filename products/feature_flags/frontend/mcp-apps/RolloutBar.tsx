@@ -1,7 +1,6 @@
 import type { ReactElement } from 'react'
 
-import { Tooltip } from '../../base/Tooltip'
-import { cn } from '../../utils'
+import { Tooltip, cn } from '@posthog/mosaic'
 
 export interface RolloutBarProps {
     percentage: number

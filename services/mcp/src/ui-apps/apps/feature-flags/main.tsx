@@ -1,8 +1,7 @@
 import '../../styles/tailwind.css'
 
+import { type FeatureFlagData, FeatureFlagView } from '@products/feature_flags/frontend/mcp-apps'
 import { createRoot } from 'react-dom/client'
-
-import { type FeatureFlagData, FeatureFlagView } from '@posthog/mosaic'
 
 import { AppWrapper } from '../../components/AppWrapper'
 
