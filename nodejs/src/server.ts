@@ -26,7 +26,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
-import { ErrorTrackingConsumer } from './ingestion/error-tracking-consumer'
+import { ErrorTrackingConsumer } from './ingestion/error-tracking/error-tracking-consumer'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
