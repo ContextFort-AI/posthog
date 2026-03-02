@@ -4,7 +4,7 @@ import type { Meta, StoryFn } from '@storybook/react'
 import { type FeatureFlagData, FeatureFlagView } from './index'
 
 const meta: Meta = {
-    title: 'Mosaic/Feature Flags',
+    title: 'MCP Apps/Feature Flags',
     decorators: [McpThemeDecorator],
 }
 export default meta
