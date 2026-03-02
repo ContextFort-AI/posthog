@@ -285,11 +285,12 @@ class AssistantContextManager(AssistantContextMixin):
                     lines.append(f"  Current Hog source:\n```hog\n{evaluation.hog_source}\n```")
                 eval_details.append("\n".join(lines))
 
-            hog_reference = HOG_EVALUATION_REFERENCE
+            has_hog_eval = any(e.evaluation_type == "hog" for e in ui_context.evaluations)
+            hog_reference = f"\n{HOG_EVALUATION_REFERENCE}" if has_hog_eval else ""
 
             evaluations_context = (
                 f"<evaluations_context>The user is editing the following LLM evaluation:\n"
-                f"{chr(10).join(eval_details)}\n\n"
+                f"{chr(10).join(eval_details)}"
                 f"{hog_reference}\n"
                 f"</evaluations_context>"
             )

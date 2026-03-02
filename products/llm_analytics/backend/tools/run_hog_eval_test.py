@@ -151,7 +151,7 @@ class RunHogEvalTestTool(MaxTool):
             output_preview = extract_text_from_messages(output_raw)[:200]
 
             verdict = result["verdict"]
-            if result.get("error"):
+            if result["error"]:
                 verdict_str = "ERROR"
             elif verdict is True:
                 verdict_str = "PASS"
