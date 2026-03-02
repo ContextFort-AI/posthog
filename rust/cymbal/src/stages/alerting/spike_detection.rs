@@ -10,17 +10,16 @@ use uuid::Uuid;
 
 use crate::app_context::AppContext;
 use crate::issue_resolution::Issue;
-use crate::spike_config::SpikeDetectionConfig;
 use crate::metric_consts::{
     SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_EMIT_EVENTS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME,
     SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
     SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
 };
+use crate::spike_config::SpikeDetectionConfig;
 
 const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
 const NUM_BUCKETS: usize = 12;
-
 
 const ISSUE_SPIKING_EVENT: &str = "$error_tracking_issue_spiking";
 const MIN_HISTORICAL_BUCKETS_FOR_ISSUE_BASELINE: usize = 1;
@@ -291,7 +290,10 @@ async fn emit_spiking_events(
         .into_iter()
         .filter(|s| {
             if !team_configs.contains_key(&s.issue.team_id) {
-                warn!("No spike detection config for team {}, skipping issue {}", s.issue.team_id, s.issue.id);
+                warn!(
+                    "No spike detection config for team {}, skipping issue {}",
+                    s.issue.team_id, s.issue.id
+                );
                 return false;
             }
             true
@@ -301,22 +303,23 @@ async fn emit_spiking_events(
     let locks_timer = common_metrics::timing_guard(SPIKE_ACQUIRE_LOCKS_TIME, &[]);
     let cooldown_items: Vec<(String, usize)> = spiking
         .iter()
-        .map(|s| (cooldown_key(&s.issue.id), team_configs[&s.issue.team_id].snooze_duration_seconds))
+        .map(|s| {
+            (
+                cooldown_key(&s.issue.id),
+                team_configs[&s.issue.team_id].snooze_duration_seconds,
+            )
+        })
         .collect();
 
-    let lock_results = match acquire_cooldown_locks(
-        &*context.issue_buckets_redis_client,
-        &cooldown_items,
-    )
-    .await
-    {
-        Ok(results) => results,
-        Err(e) => {
-            locks_timer.fin();
-            warn!("Failed to acquire spike cooldown locks: {e}");
-            return;
-        }
-    };
+    let lock_results =
+        match acquire_cooldown_locks(&*context.issue_buckets_redis_client, &cooldown_items).await {
+            Ok(results) => results,
+            Err(e) => {
+                locks_timer.fin();
+                warn!("Failed to acquire spike cooldown locks: {e}");
+                return;
+            }
+        };
 
     let blocked_count = lock_results.iter().filter(|&&acquired| !acquired).count();
     metrics::counter!(SPIKE_ISSUES_BLOCKED_BY_COOLDOWN).increment(blocked_count as u64);
@@ -480,7 +483,10 @@ async fn get_spiking_issues(
             let team_baseline = *team_baselines.get(&issue.team_id).unwrap_or(&0.0);
             let baseline = compute_issue_baseline(historical, team_baseline);
             let Some(config) = team_configs.get(&issue.team_id) else {
-                warn!("No spike detection config for team {}, skipping issue {}", issue.team_id, issue.id);
+                warn!(
+                    "No spike detection config for team {}, skipping issue {}",
+                    issue.team_id, issue.id
+                );
                 return None;
             };
 
