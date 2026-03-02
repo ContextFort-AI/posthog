@@ -14,7 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { SurveyQuestionBranchingType } from '~/types'
+import { SurveyQuestionBranchingType, SurveyType } from '~/types'
 
 import { NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
@@ -115,6 +115,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const getConditionsSummary = (): string[] => {
         const conditions = survey.conditions
         const summary: string[] = []
+
+        summary.push(survey.type === SurveyType.Widget ? 'Appears as a feedback button' : 'Appears as a pop-up')
 
         if (conditions?.url) {
             summary.push(`URL contains "${conditions.url}"`)
