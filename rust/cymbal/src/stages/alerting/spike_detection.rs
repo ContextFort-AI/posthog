@@ -245,36 +245,15 @@ fn parse_enabled_team_ids(config_value: &str) -> Option<Vec<i32>> {
     )
 }
 
-/// Acquires NX EX locks with potentially different TTLs per item.
-/// Groups items by TTL to minimize round trips while preserving result ordering.
 async fn acquire_cooldown_locks(
     redis: &(dyn Client + Send + Sync),
     items: &[(String, usize)],
 ) -> Result<Vec<bool>, common_redis::CustomRedisError> {
-    if items.is_empty() {
-        return Ok(vec![]);
-    }
-
-    // Group indices by TTL
-    let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
-    for (idx, (_, ttl)) in items.iter().enumerate() {
-        groups.entry(*ttl).or_default().push(idx);
-    }
-
-    let mut results = vec![false; items.len()];
-
-    for (ttl, indices) in groups {
-        let batch: Vec<(String, String)> = indices
-            .iter()
-            .map(|&i| (items[i].0.clone(), "1".to_string()))
-            .collect();
-        let batch_results = redis.batch_set_nx_ex(batch, ttl).await?;
-        for (idx, acquired) in indices.into_iter().zip(batch_results) {
-            results[idx] = acquired;
-        }
-    }
-
-    Ok(results)
+    let batch = items
+        .iter()
+        .map(|(key, ttl)| (key.clone(), "1".to_string(), *ttl))
+        .collect();
+    redis.batch_set_nx_ex(batch).await
 }
 
 async fn emit_spiking_events(
