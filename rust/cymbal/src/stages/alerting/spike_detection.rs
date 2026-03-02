@@ -194,36 +194,11 @@ pub async fn do_spike_detection(
         .filter(|(id, _)| issues_by_id.contains_key(id))
         .collect();
 
-    // Fetch spike detection config for each unique team concurrently
-    let unique_team_ids: Vec<i32> = issues_by_id
-        .values()
-        .map(|i| i.team_id)
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
-
-    let config_tasks: Vec<_> = unique_team_ids
-        .into_iter()
-        .map(|team_id| {
-            let team_manager = context.team_manager.clone();
-            let pool = context.posthog_pool.clone();
-            let task = tokio::spawn(async move {
-                team_manager
-                    .get_spike_detection_config(&pool, team_id)
-                    .await
-            });
-            (team_id, task)
-        })
-        .collect();
-
-    let mut team_configs: HashMap<i32, SpikeDetectionConfig> = HashMap::new();
-    for (team_id, task) in config_tasks {
-        let config = task
-            .await
-            .expect("Task was not cancelled")
-            .unwrap_or_default();
-        team_configs.insert(team_id, config);
-    }
+    let team_ids = issues_by_id.values().map(|i| i.team_id);
+    let team_configs = context
+        .team_manager
+        .get_spike_detection_configs(&context.posthog_pool, team_ids)
+        .await;
 
     let issue_buckets_timer = common_metrics::timing_guard(SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, &[]);
     try_increment_issue_buckets(&*context.issue_buckets_redis_client, &issue_counts).await;
