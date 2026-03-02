@@ -175,10 +175,13 @@ impl TeamManager {
 
         let mut result = HashMap::new();
         for (team_id, task) in tasks {
-            let config = task
-                .await
-                .expect("Task was not cancelled")
-                .unwrap_or_default();
+            let config = match task.await.expect("Task was not cancelled") {
+                Ok(config) => config,
+                Err(e) => {
+                    warn!("Failed to load spike detection config for team {team_id}, using defaults: {e}");
+                    SpikeDetectionConfig::default()
+                }
+            };
             result.insert(team_id, config);
         }
         result

@@ -286,30 +286,21 @@ async fn emit_spiking_events(
         return;
     }
 
-    let spiking: Vec<SpikingIssue> = spiking
+    let locks_timer = common_metrics::timing_guard(SPIKE_ACQUIRE_LOCKS_TIME, &[]);
+    let (spiking, cooldown_items): (Vec<SpikingIssue>, Vec<(String, usize)>) = spiking
         .into_iter()
-        .filter(|s| {
-            if !team_configs.contains_key(&s.issue.team_id) {
+        .filter_map(|s| {
+            let Some(config) = team_configs.get(&s.issue.team_id) else {
                 warn!(
                     "No spike detection config for team {}, skipping issue {}",
                     s.issue.team_id, s.issue.id
                 );
-                return false;
-            }
-            true
+                return None;
+            };
+            let key = cooldown_key(&s.issue.id);
+            Some((s, (key, config.snooze_duration_seconds)))
         })
-        .collect();
-
-    let locks_timer = common_metrics::timing_guard(SPIKE_ACQUIRE_LOCKS_TIME, &[]);
-    let cooldown_items: Vec<(String, usize)> = spiking
-        .iter()
-        .map(|s| {
-            (
-                cooldown_key(&s.issue.id),
-                team_configs[&s.issue.team_id].snooze_duration_seconds,
-            )
-        })
-        .collect();
+        .unzip();
 
     let lock_results =
         match acquire_cooldown_locks(&*context.issue_buckets_redis_client, &cooldown_items).await {
