@@ -83,6 +83,8 @@ import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 
+const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
+
 type FlagType = 'boolean' | 'multivariate' | 'remote_config'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
@@ -441,6 +443,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         applyUrlTemplate: (templateId: string) => ({ templateId }),
         applyTemplate: (templateId: string) => ({ templateId }),
         setFlagIntent: (intent: FlagIntent | null) => ({ intent }),
+        applyUrlIntent: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -822,7 +825,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             false,
             {
                 applyUrlTemplate: () => true,
-                // Reset when loading a new flag
+                loadFeatureFlag: () => false,
+            },
+        ],
+        urlIntentApplied: [
+            false,
+            {
+                applyUrlIntent: () => true,
                 loadFeatureFlag: () => false,
             },
         ],
@@ -1476,16 +1485,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.applyTemplate(templateId)
             }
 
-            // Apply intent from URL param
-            const intent = router.values.searchParams.intent as FlagIntent | undefined
-            if (intent && featureFlag) {
-                actions.setFlagIntent(intent)
-                if (intent === 'local-eval') {
-                    actions.setFeatureFlag({
-                        ...values.featureFlag,
-                        evaluation_runtime: FeatureFlagEvaluationRuntime.SERVER,
-                        ensure_experience_continuity: false,
-                    })
+            // Apply intent from URL param (when no template, or template already applied)
+            if (!templateId && featureFlag && !values.urlIntentApplied) {
+                const rawIntent = router.values.searchParams.intent
+                const intent = VALID_INTENTS.includes(rawIntent) ? (rawIntent as FlagIntent) : undefined
+                if (intent) {
+                    actions.setFlagIntent(intent)
+                    actions.applyUrlIntent()
+                    if (intent === 'local-eval') {
+                        actions.setFeatureFlag({
+                            ...values.featureFlag,
+                            evaluation_runtime: FeatureFlagEvaluationRuntime.SERVER,
+                            ensure_experience_continuity: false,
+                        })
+                    }
                 }
             }
         },
@@ -1507,6 +1520,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             actions.setTemplateExpanded(false)
             actions.applyUrlTemplate(templateId)
+
+            // Apply intent after template so intent presets are not overwritten
+            if (!values.urlIntentApplied) {
+                const rawIntent = router.values.searchParams.intent
+                const intent = VALID_INTENTS.includes(rawIntent) ? (rawIntent as FlagIntent) : undefined
+                if (intent) {
+                    actions.setFlagIntent(intent)
+                    actions.applyUrlIntent()
+                    if (intent === 'local-eval') {
+                        actions.setFeatureFlag({
+                            ...values.featureFlag,
+                            evaluation_runtime: FeatureFlagEvaluationRuntime.SERVER,
+                            ensure_experience_continuity: false,
+                        })
+                    }
+                }
+            }
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
             if (featureFlagCopy?.success.length) {
