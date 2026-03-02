@@ -485,12 +485,7 @@ impl Client for RedisClient {
         }
         let mut pipe = redis::pipe();
         for (k, v, ttl) in &items {
-            pipe.cmd("SET")
-                .arg(k)
-                .arg(v)
-                .arg("NX")
-                .arg("EX")
-                .arg(ttl);
+            pipe.cmd("SET").arg(k).arg(v).arg("NX").arg("EX").arg(ttl);
         }
         let mut conn = self.connection.clone();
         let results: Vec<Option<String>> = pipe.query_async(&mut conn).await?;
