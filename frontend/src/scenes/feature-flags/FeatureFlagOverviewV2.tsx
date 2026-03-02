@@ -465,6 +465,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     isEditing ? (
                                         <FeatureFlagReleaseConditionsCollapsible
                                             id={String(featureFlag.id)}
+                                            flagId={featureFlag.id ?? 'new'}
                                             filters={sectionDraft?.filters ?? featureFlag.filters}
                                             onChange={(filters) => updateSectionDraft({ filters })}
                                             nonEmptyFeatureFlagVariants={
