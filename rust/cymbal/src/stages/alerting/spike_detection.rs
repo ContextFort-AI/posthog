@@ -21,7 +21,6 @@ const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
 const NUM_BUCKETS: usize = 12;
 
-const DEFAULT_SPIKE_ALERT_COOLDOWN_SECONDS: usize = 10 * 60;
 
 const ISSUE_SPIKING_EVENT: &str = "$error_tracking_issue_spiking";
 const MIN_HISTORICAL_BUCKETS_FOR_ISSUE_BASELINE: usize = 1;
@@ -288,17 +287,21 @@ async fn emit_spiking_events(
         return;
     }
 
+    let spiking: Vec<SpikingIssue> = spiking
+        .into_iter()
+        .filter(|s| {
+            if !team_configs.contains_key(&s.issue.team_id) {
+                warn!("No spike detection config for team {}, skipping issue {}", s.issue.team_id, s.issue.id);
+                return false;
+            }
+            true
+        })
+        .collect();
+
     let locks_timer = common_metrics::timing_guard(SPIKE_ACQUIRE_LOCKS_TIME, &[]);
     let cooldown_items: Vec<(String, usize)> = spiking
         .iter()
-        .map(|s| {
-            let cooldown = team_configs
-                .get(&s.issue.team_id)
-                .map_or(DEFAULT_SPIKE_ALERT_COOLDOWN_SECONDS, |c| {
-                    c.snooze_duration_seconds
-                });
-            (cooldown_key(&s.issue.id), cooldown)
-        })
+        .map(|s| (cooldown_key(&s.issue.id), team_configs[&s.issue.team_id].snooze_duration_seconds))
         .collect();
 
     let lock_results = match acquire_cooldown_locks(
@@ -467,7 +470,6 @@ async fn get_spiking_issues(
 
     let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
 
-    let default_config = SpikeDetectionConfig::default();
     let spiking = issue_buckets
         .iter()
         .filter_map(|bucket| {
@@ -477,9 +479,10 @@ async fn get_spiking_issues(
             let historical = &bucket.values[1..];
             let team_baseline = *team_baselines.get(&issue.team_id).unwrap_or(&0.0);
             let baseline = compute_issue_baseline(historical, team_baseline);
-            let config = team_configs
-                .get(&issue.team_id)
-                .unwrap_or(&default_config);
+            let Some(config) = team_configs.get(&issue.team_id) else {
+                warn!("No spike detection config for team {}, skipping issue {}", issue.team_id, issue.id);
+                return None;
+            };
 
             if is_spiking(current_value, baseline, config) {
                 Some(SpikingIssue {
