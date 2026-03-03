@@ -42,7 +42,7 @@ class RunHogEvalTestTool(MaxTool):
     description: str = TOOL_DESCRIPTION
     args_schema: type[BaseModel] = RunHogEvalTestArgs
 
-    def get_required_resource_access(self) -> list[tuple[str, str]]:
+    def get_required_resource_access(self):
         return [("llm_analytics", "viewer")]
 
     async def _arun_impl(self, source: str, sample_count: int = 3) -> tuple[str, Any]:
