@@ -104,7 +104,7 @@ export function FeatureFlagListView({ data, onFlagClick }: FeatureFlagListViewPr
                 onFlagClick ? (
                     <button
                         onClick={() => handleFlagClick(row)}
-                        className="text-link hover:underline cursor-pointer text-left"
+                        className="text-link underline decoration-border-primary hover:decoration-link cursor-pointer text-left transition-colors"
                     >
                         {row.key}
                     </button>
