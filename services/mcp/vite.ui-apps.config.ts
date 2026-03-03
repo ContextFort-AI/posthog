@@ -125,8 +125,8 @@ export default defineConfig({
     plugins: [react(), inlineAllAssets()],
     resolve: {
         alias: {
+            products: resolve(__dirname, '../../products'),
             '@posthog/mosaic': resolve(__dirname, '../../common/mosaic/src'),
-            '@products': resolve(__dirname, '../../products'),
             '@common': resolve(__dirname, '../../common'),
         },
     },

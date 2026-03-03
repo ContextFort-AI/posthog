@@ -12,7 +12,6 @@
         "paths": {
             "@posthog/mosaic": ["src/index.ts"],
             "@posthog/mosaic/*": ["src/*"],
-            "@products/*": ["../../products/*"],
             "@common/*": ["../*"]
         }
     },

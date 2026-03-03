@@ -12,7 +12,6 @@
             "~/*": ["src/*"],
             "public/*": ["public/*"],
             "products/*": ["../products/*"],
-            "@products/*": ["../products/*"],
             "@common/*": ["../common/*"],
             "@posthog/mosaic": ["../common/mosaic/src/index.ts"],
             "@posthog/mosaic/*": ["../common/mosaic/src/*"],

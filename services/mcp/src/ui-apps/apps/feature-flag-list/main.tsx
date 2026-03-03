@@ -1,13 +1,14 @@
 import '../../styles/tailwind.css'
 
 import type { App } from '@modelcontextprotocol/ext-apps'
+import { useCallback } from 'react'
+import { createRoot } from 'react-dom/client'
+
 import {
     type FeatureFlagData,
     type FeatureFlagListData,
     FeatureFlagListView,
-} from '@products/feature_flags/frontend/mcp-apps'
-import { useCallback } from 'react'
-import { createRoot } from 'react-dom/client'
+} from 'products/feature_flags/frontend/mcp-apps'
 
 import { AppWrapper } from '../../components/AppWrapper'
 

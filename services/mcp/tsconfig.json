@@ -21,11 +21,11 @@
         "types": ["node", "./worker-configuration.d.ts"],
         "baseUrl": ".",
         "paths": {
+            "products/*": ["../../products/*"],
             "@/*": ["src/*", "tests/*"],
             "@shared/*": ["shared/*"],
             "@posthog/mosaic": ["../../common/mosaic/src/index.ts"],
             "@posthog/mosaic/*": ["../../common/mosaic/src/*"],
-            "@products/*": ["../../products/*"],
             "@common/*": ["../../common/*"]
         }
     },
