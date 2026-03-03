@@ -45,8 +45,11 @@ export class PersonsPage {
     }
 
     async searchFor(query: string): Promise<void> {
+        const queryResponse = this.page.waitForResponse(
+            (resp) => resp.url().includes('/query/') && resp.request().method() === 'POST' && resp.status() === 200
+        )
         await this.searchInput.fill(query)
-        // Wait for the debounced search to return results
+        await queryResponse
         await expect(this.table.getByRole('link').first()).toBeVisible({ timeout: 15_000 })
     }
 
