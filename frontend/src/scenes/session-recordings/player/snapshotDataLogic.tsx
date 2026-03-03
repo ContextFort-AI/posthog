@@ -67,12 +67,20 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
         setPlayerActive: (active: boolean) => ({ active }),
         loadAllSources: true,
+        // dispatch after any cache.store mutation to trigger a new Redux notification cycle
+        storeUpdated: true,
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
             0,
             {
                 loadSnapshotsForSourceSuccess: (state) => state + 1,
+            },
+        ],
+        storeUpdateCount: [
+            0,
+            {
+                storeUpdated: (state: number) => state + 1,
             },
         ],
         loadingSources: [
@@ -402,6 +410,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 for (const se of sourceEntries) {
                     cache.store.markLoaded(se.sourceIndex, buckets.get(se.sourceIndex)!)
                 }
+                actions.storeUpdated()
 
                 actions.loadNextSnapshotSource()
                 return
@@ -573,7 +582,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         allSourcesLoaded: [
-            (s) => [s.snapshotSources, s.snapshotsBySourceSuccessCount],
+            (s) => [s.snapshotSources, s.snapshotsBySourceSuccessCount, s.storeUpdateCount],
             (snapshotSources): boolean => {
                 if (!snapshotSources || snapshotSources.length === 0) {
                     return false
@@ -589,7 +598,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         storeVersion: [
-            (s) => [s.snapshotsBySourceSuccessCount, s.snapshotSources],
+            (s) => [s.storeUpdateCount, s.snapshotSources],
             (): number => {
                 return cache.store?.version ?? 0
             },
