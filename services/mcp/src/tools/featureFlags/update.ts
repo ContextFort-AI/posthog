@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { FEATURE_FLAGS_RESOURCE_URI } from '@/resources/ui-apps-constants'
+import { FEATURE_FLAG_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { FeatureFlagUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -33,7 +33,7 @@ const tool = (): ToolBase<typeof schema> => ({
     handler: updateHandler,
     _meta: {
         ui: {
-            resourceUri: FEATURE_FLAGS_RESOURCE_URI,
+            resourceUri: FEATURE_FLAG_RESOURCE_URI,
         },
     },
 })

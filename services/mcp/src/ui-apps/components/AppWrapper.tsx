@@ -1,4 +1,5 @@
-import type { ReactElement, ReactNode } from 'react'
+import type { App } from '@modelcontextprotocol/ext-apps'
+import { type ReactElement, type ReactNode, useCallback, useEffect, useState } from 'react'
 
 import { Link } from '@posthog/mosaic'
 
@@ -71,9 +72,60 @@ export function AppLoadingState(): ReactElement {
     )
 }
 
+function ExpandButton({
+    app,
+    onDisplayModeChanged,
+}: {
+    app: App | null
+    onDisplayModeChanged?: () => void
+}): ReactElement | null {
+    const [supportsFullscreen, setSupportsFullscreen] = useState(false)
+    const [isFullscreen, setIsFullscreen] = useState(false)
+
+    useEffect(() => {
+        if (!app) {
+            return
+        }
+        const ctx = app.getHostContext()
+        const available = ctx?.availableDisplayModes ?? []
+        if (available.includes('fullscreen')) {
+            setSupportsFullscreen(true)
+            setIsFullscreen(ctx?.displayMode === 'fullscreen')
+        }
+    }, [app])
+
+    const handleToggle = useCallback(() => {
+        if (!app) {
+            return
+        }
+        const target = isFullscreen ? 'inline' : 'fullscreen'
+        app.requestDisplayMode({ mode: target }).then((result) => {
+            setIsFullscreen(result.mode === 'fullscreen')
+            // Host needs time to resize the container after the mode switch.
+            // Read dimensions immediately, then again after a short delay.
+            onDisplayModeChanged?.()
+            setTimeout(() => onDisplayModeChanged?.(), 200)
+        })
+    }, [app, isFullscreen, onDisplayModeChanged])
+
+    if (!supportsFullscreen) {
+        return null
+    }
+
+    return (
+        <button
+            onClick={handleToggle}
+            className="text-xs text-text-secondary hover:text-text-primary cursor-pointer transition-colors"
+            title={isFullscreen ? 'Exit fullscreen' : 'Expand'}
+        >
+            {isFullscreen ? '\u2716' : '\u26F6'}
+        </button>
+    )
+}
+
 export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): ReactElement {
     const toolResult = useToolResult<T>(options)
-    const { data, isConnected, error, openLink } = toolResult
+    const { data, isConnected, error, openLink, app, containerDimensions, refreshContainerDimensions } = toolResult
 
     const posthogUrl =
         data && typeof data === 'object' && '_posthogUrl' in data
@@ -82,15 +134,28 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
 
     const hasContent = !error && isConnected && data
 
+    const rootStyle: React.CSSProperties = {
+        display: 'flex',
+        flexDirection: 'column',
+        maxWidth: 960,
+        marginLeft: 'auto',
+        marginRight: 'auto',
+        width: '100%',
+        ...(containerDimensions?.height != null
+            ? { height: containerDimensions.height }
+            : containerDimensions?.maxHeight != null
+              ? { maxHeight: containerDimensions.maxHeight }
+              : { minHeight: '100%' }),
+    }
+
     if (!hasContent) {
         return (
             <div
                 style={{
-                    display: 'flex',
-                    flexDirection: 'column',
+                    ...rootStyle,
+                    ...(containerDimensions?.height == null ? { minHeight: 200 } : {}),
                     alignItems: 'center',
                     justifyContent: 'center',
-                    height: 200,
                     gap: '0.75rem',
                 }}
             >
@@ -107,23 +172,19 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
     }
 
     return (
-        <div
-            style={{
-                display: 'flex',
-                flexDirection: 'column',
-                minHeight: '100%',
-            }}
-        >
-            <div style={{ flex: 1 }}>{children(toolResult)}</div>
+        <div style={rootStyle}>
+            <div style={{ overflow: 'auto' }}>{children(toolResult)}</div>
             <footer
                 style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'flex-end',
+                    justifyContent: 'space-between',
                     padding: '0.375rem 0.75rem',
                     borderTop: '1px solid var(--color-border-primary, #e5e7eb)',
+                    marginTop: 'auto',
                 }}
             >
+                <ExpandButton app={app} onDisplayModeChanged={refreshContainerDimensions} />
                 {posthogUrl ? (
                     <Link
                         href={posthogUrl}

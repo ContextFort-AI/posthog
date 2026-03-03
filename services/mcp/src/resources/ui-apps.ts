@@ -7,9 +7,15 @@ import type { Context } from '@/tools/types'
 // Import bundled HTML at build time (wrangler Text rule)
 // Each UI app has its own HTML file in ui-apps-dist/src/ui-apps/apps/<name>/
 import debugHtml from '../../ui-apps-dist/src/ui-apps/apps/debug/index.html'
-import featureFlagsHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flags/index.html'
+import featureFlagListHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flag-list/index.html'
+import featureFlagHtml from '../../ui-apps-dist/src/ui-apps/apps/feature-flag/index.html'
 import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
-import { DEBUG_RESOURCE_URI, FEATURE_FLAGS_RESOURCE_URI, QUERY_RESULTS_RESOURCE_URI } from './ui-apps-constants'
+import {
+    DEBUG_RESOURCE_URI,
+    FEATURE_FLAG_LIST_RESOURCE_URI,
+    FEATURE_FLAG_RESOURCE_URI,
+    QUERY_RESULTS_RESOURCE_URI,
+} from './ui-apps-constants'
 
 /**
  * Registers UI app resources with the MCP server.
@@ -21,7 +27,8 @@ import { DEBUG_RESOURCE_URI, FEATURE_FLAGS_RESOURCE_URI, QUERY_RESULTS_RESOURCE_
 export async function registerUiAppResources(server: McpServer, context: Context): Promise<void> {
     registerDebugApp(server, context) // Debug app - used by debug-mcp-ui-apps tool for testing
     registerQueryResultsApp(server, context) // Query Results - used by query-run and insight-query tools
-    registerFeatureFlagsApp(server, context) // Feature Flags - used by feature-flag-get-definition tool
+    registerFeatureFlagApp(server, context) // Feature flag - used by feature-flag-get-definition, create, update tools
+    registerFeatureFlagListApp(server, context) // Feature flag list - used by feature-flag-get-all tool
 }
 
 function registerDebugApp(server: McpServer, context: Context): void {
@@ -43,12 +50,21 @@ function registerQueryResultsApp(server: McpServer, context: Context): void {
     })
 }
 
-function registerFeatureFlagsApp(server: McpServer, context: Context): void {
+function registerFeatureFlagApp(server: McpServer, context: Context): void {
     registerApp(server, context, {
-        name: 'Feature Flags',
-        uri: FEATURE_FLAGS_RESOURCE_URI,
+        name: 'Feature flag',
+        uri: FEATURE_FLAG_RESOURCE_URI,
         description: 'Feature flag detail view with release conditions, variants, and property filters',
-        html: featureFlagsHtml,
+        html: featureFlagHtml,
+    })
+}
+
+function registerFeatureFlagListApp(server: McpServer, context: Context): void {
+    registerApp(server, context, {
+        name: 'Feature flag list',
+        uri: FEATURE_FLAG_LIST_RESOURCE_URI,
+        description: 'Feature flag list view showing all flags in a sortable data table',
+        html: featureFlagListHtml,
     })
 }
 
@@ -84,4 +100,4 @@ function registerApp(server: McpServer, context: Context, { name, uri, descripti
 }
 
 // Re-export for tools to import
-export { QUERY_RESULTS_RESOURCE_URI, DEBUG_RESOURCE_URI, FEATURE_FLAGS_RESOURCE_URI }
+export { QUERY_RESULTS_RESOURCE_URI, DEBUG_RESOURCE_URI, FEATURE_FLAG_RESOURCE_URI, FEATURE_FLAG_LIST_RESOURCE_URI }

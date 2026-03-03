@@ -1,7 +1,7 @@
 import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
 import type { Meta, StoryFn } from '@storybook/react'
 
-import { type FeatureFlagData, FeatureFlagView } from './index'
+import { type FeatureFlagData, type FeatureFlagListData, FeatureFlagListView, FeatureFlagView } from './index'
 
 const meta: Meta = {
     title: 'MCP Apps/Feature Flags',
@@ -87,3 +87,14 @@ MultivariateFlag.storyName = 'Multivariate flag with variant override'
 
 export const InactiveFlag: StoryFn = () => <FeatureFlagView flag={sampleInactiveFlag} />
 InactiveFlag.storyName = 'Inactive flag'
+
+const sampleListData: FeatureFlagListData = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: [sampleBooleanFlag, sampleMultivariateFlag, sampleInactiveFlag],
+    _posthogUrl: 'https://us.posthog.com/project/1/feature_flags',
+}
+
+export const FlagList: StoryFn = () => <FeatureFlagListView data={sampleListData} />
+FlagList.storyName = 'Flag list'

@@ -28,7 +28,14 @@ export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
 
 /**
  * Feature flag detail visualization.
- * Used by: feature-flag-get-definition
+ * Used by: feature-flag-get-definition, create-feature-flag, update-feature-flag
  * Shows flag status, release conditions, variants, and property filters.
  */
-export const FEATURE_FLAGS_RESOURCE_URI = 'ui://posthog/feature-flags.html'
+export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
+
+/**
+ * Feature flag list visualization.
+ * Used by: feature-flag-get-all
+ * Shows a data table of all feature flags with status, tags, and dates.
+ */
+export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'

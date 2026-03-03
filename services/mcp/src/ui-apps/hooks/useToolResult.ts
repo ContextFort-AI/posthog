@@ -61,6 +61,13 @@ export interface UseToolResultOptions {
     appVersion?: string
 }
 
+export interface ContainerDimensions {
+    height?: number
+    maxHeight?: number
+    width?: number
+    maxWidth?: number
+}
+
 export interface UseToolResultReturn<T> {
     /** The parsed tool result data, or null if not yet received */
     data: T | null
@@ -74,6 +81,10 @@ export interface UseToolResultReturn<T> {
     openLink: (url: string) => void
     /** Capture a custom analytics event */
     capture: typeof capture
+    /** Container dimensions from the host, updated on context changes */
+    containerDimensions: ContainerDimensions | null
+    /** Re-read container dimensions from the host context */
+    refreshContainerDimensions: () => void
 }
 
 /**
@@ -86,6 +97,19 @@ function parseToolResultContent<T>(structuredContent: unknown): T | null {
     }
 
     return null
+}
+
+function extractContainerDimensions(ctx: Record<string, unknown> | undefined | null): ContainerDimensions | null {
+    const dims = ctx?.containerDimensions as Record<string, unknown> | undefined
+    if (!dims) {
+        return null
+    }
+    return {
+        height: typeof dims.height === 'number' ? dims.height : undefined,
+        maxHeight: typeof dims.maxHeight === 'number' ? dims.maxHeight : undefined,
+        width: typeof dims.width === 'number' ? dims.width : undefined,
+        maxWidth: typeof dims.maxWidth === 'number' ? dims.maxWidth : undefined,
+    }
 }
 
 function log(...args: any[]): void {
@@ -104,6 +128,7 @@ export function useToolResult<T = unknown>({
 }: UseToolResultOptions): UseToolResultReturn<T> {
     const [data, setData] = useState<T | null>(null)
     const [parseError, setParseError] = useState<Error | null>(null)
+    const [containerDimensions, setContainerDimensions] = useState<ContainerDimensions | null>(null)
     const hasLoggedConnection = useRef(false)
 
     // Initialize PostHog on first render
@@ -154,6 +179,7 @@ export function useToolResult<T = unknown>({
                     hasFonts: !!notification.params.styles?.css?.fonts,
                     theme: params.theme,
                 })
+                setContainerDimensions(extractContainerDimensions(params as unknown as Record<string, unknown>))
             })
 
             // Register tool result handler
@@ -212,6 +238,7 @@ export function useToolResult<T = unknown>({
                 hasFonts: !!hostContextExtended?.fonts,
                 availableDisplayModes: hostContext?.availableDisplayModes,
             })
+            setContainerDimensions(extractContainerDimensions(hostContext as unknown as Record<string, unknown>))
             hasLoggedConnection.current = true
         }
     }, [isConnected, app])
@@ -229,6 +256,15 @@ export function useToolResult<T = unknown>({
         [app]
     )
 
+    // Re-read container dimensions from the current host context
+    const refreshContainerDimensions = useCallback(() => {
+        if (!app) {
+            return
+        }
+        const ctx = app.getHostContext()
+        setContainerDimensions(extractContainerDimensions(ctx as unknown as Record<string, unknown>))
+    }, [app])
+
     // Combine connection and parse errors
     const error = connectionError || parseError
 
@@ -239,5 +275,7 @@ export function useToolResult<T = unknown>({
         app,
         openLink,
         capture,
+        containerDimensions,
+        refreshContainerDimensions,
     }
 }
