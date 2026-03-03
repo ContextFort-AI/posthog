@@ -22,8 +22,14 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to get feature flags: ${flagsResult.error.message}`)
     }
 
+    // The API client returns a plain array, but the UI app expects
+    // the paginated envelope shape { count, results, next, previous }
+    const flags = flagsResult.data
     return {
-        ...flagsResult.data,
+        count: flags.length,
+        results: flags,
+        next: null,
+        previous: null,
         _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/feature_flags`,
     }
 }
