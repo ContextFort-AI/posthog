@@ -192,6 +192,9 @@ class ChangeRequestService:
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
 
+            if change_request.state != ChangeRequestState.PENDING:
+                raise InvalidStateError("Only pending change requests can be approved")
+
             approval, created = Approval.objects.get_or_create(
                 change_request=change_request,
                 created_by=self.user,
@@ -281,6 +284,9 @@ class ChangeRequestService:
 
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
+
+            if change_request.state != ChangeRequestState.PENDING:
+                raise InvalidStateError("Only pending change requests can be rejected")
 
             approval, created = Approval.objects.get_or_create(
                 change_request=change_request,
