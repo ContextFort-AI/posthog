@@ -277,7 +277,9 @@ export function InsightMeta({
                               toggleShowDescription()
                           }
                           const attribute = updates.name !== undefined ? 'name' : 'description'
-                          reportDashboardInsightMetaUpdated(dashboardId, insight.id, attribute)
+                          if (dashboardId !== undefined) {
+                              reportDashboardInsightMetaUpdated(dashboardId, insight.id, attribute)
+                          }
                       }
                     : undefined
             }
