@@ -1,17 +1,25 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { LemonInputSelect } from '@posthog/lemon-ui'
 
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType } from '~/types'
+import { FeatureFlagFilters, PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType } from '~/types'
 
 import { surveyLogic } from '../../surveyLogic'
 
+const DEFAULT_TARGETING_FLAG_FILTERS: FeatureFlagFilters = {
+    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+    multivariate: null,
+    payloads: {},
+}
+
 export function WhereStep(): JSX.Element {
-    const { survey } = useValues(surveyLogic)
+    const { survey, targetingFlagFilters } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
 
     const { options } = useValues(propertyDefinitionsModel)
@@ -21,6 +29,7 @@ export function WhereStep(): JSX.Element {
     const conditions: Partial<SurveyDisplayConditions> = survey.conditions || {}
     const targetingMode = conditions.urlMatchType ? 'specific' : 'all'
     const urlPattern = conditions.url || ''
+    const userTargetingMode = targetingFlagFilters ? 'specific' : 'all'
 
     useEffect(() => {
         if (targetingMode === 'specific' && urlOptions?.status !== 'loading' && urlOptions?.status !== 'loaded') {
@@ -45,6 +54,17 @@ export function WhereStep(): JSX.Element {
 
     const setUrlPattern = (pattern: string): void => {
         setSurveyValue('conditions', { ...conditions, url: pattern, urlMatchType: SurveyMatchType.Contains })
+    }
+
+    const setUserTargetingMode = (mode: 'all' | 'specific'): void => {
+        if (mode === 'all') {
+            setSurveyValue('targeting_flag_filters', null)
+            setSurveyValue('targeting_flag', null)
+            setSurveyValue('remove_targeting_flag', true)
+        } else {
+            setSurveyValue('targeting_flag_filters', DEFAULT_TARGETING_FLAG_FILTERS)
+            setSurveyValue('remove_targeting_flag', false)
+        }
     }
 
     return (
@@ -117,6 +137,50 @@ export function WhereStep(): JSX.Element {
                         <p className="text-xs text-muted mt-2">
                             Select from your most visited pages or type a custom pattern
                         </p>
+                    </div>
+                )}
+            </div>
+
+            {/* User targeting */}
+            <div>
+                <h2 className="text-xl font-semibold mb-2">Who should see this?</h2>
+                <p className="text-secondary mb-6">Target specific users based on their properties</p>
+
+                <LemonRadio
+                    value={userTargetingMode}
+                    onChange={setUserTargetingMode}
+                    options={[
+                        {
+                            value: 'all',
+                            label: 'All users',
+                            description: 'Any user can see this survey',
+                        },
+                        {
+                            value: 'specific',
+                            label: 'Users matching conditions',
+                            description: 'Only show to users that match property filters',
+                        },
+                    ]}
+                />
+
+                {userTargetingMode === 'specific' && (
+                    <div className="mt-4 ml-6">
+                        <BindLogic
+                            logic={featureFlagLogic}
+                            props={{ id: survey.targeting_flag?.id ? String(survey.targeting_flag.id) : 'new' }}
+                        >
+                            <FeatureFlagReleaseConditions
+                                id={survey.targeting_flag?.id ? String(survey.targeting_flag.id) : 'new'}
+                                excludeTitle
+                                hideMatchOptions
+                                filters={targetingFlagFilters || DEFAULT_TARGETING_FLAG_FILTERS}
+                                onChange={(filters) => {
+                                    setSurveyValue('targeting_flag_filters', filters)
+                                }}
+                                showTrashIconWithOneCondition
+                                removedLastConditionCallback={() => setUserTargetingMode('all')}
+                            />
+                        </BindLogic>
                     </div>
                 )}
             </div>
