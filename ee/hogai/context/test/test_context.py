@@ -798,7 +798,6 @@ class TestAssistantContextManager(BaseTest):
                     "<evaluations_context>",
                     "LLM Judge Eval",
                     "Type: llm_judge",
-                    "Hog language reference for writing evaluations",
                 ],
             ],
             [
