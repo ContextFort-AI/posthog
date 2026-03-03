@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
-from posthog.approvals.exceptions import InvalidStateError
+from posthog.approvals.exceptions import InvalidIntent, InvalidStateError
 from posthog.approvals.models import ChangeRequest, ChangeRequestState
-from posthog.approvals.services import ChangeRequestService
+from posthog.approvals.services import ChangeRequestService, apply_change_request
 
 
 class TestApproveRejectRaceCondition(BaseTest):
@@ -56,3 +56,27 @@ class TestApproveRejectRaceCondition(BaseTest):
         ):
             with self.assertRaises(InvalidStateError):
                 service.reject(reason="Not ready")
+
+
+class TestApplyChangeRequestValidation(BaseTest):
+    def test_raises_invalid_intent_when_validation_fails(self):
+        change_request = ChangeRequest.objects.create(
+            team=self.team,
+            organization=self.organization,
+            created_by=self.user,
+            action_key="feature_flag.enable",
+            resource_type="feature_flag",
+            state=ChangeRequestState.APPROVED,
+            intent={"gated_changes": {"active": True}},
+            intent_display={"description": "Enable feature flag"},
+            policy_snapshot={"quorum": 1, "users": [self.user.id]},
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+
+        mock_action = MagicMock()
+        mock_action.prepare_context.return_value = {}
+        mock_action.validate_intent.return_value = (False, {"active": ["Invalid value"]})
+
+        with patch("posthog.approvals.services.get_action", return_value=mock_action):
+            with self.assertRaises(InvalidIntent):
+                apply_change_request(change_request)
