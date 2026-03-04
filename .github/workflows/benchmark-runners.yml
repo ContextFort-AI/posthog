@@ -1,10 +1,10 @@
-name: Runner Benchmark
+name: Runner Benchmark v2
 
 on:
-  workflow_dispatch: # Manual trigger only
+  workflow_dispatch:
   push:
     branches:
-      - benchmark # Only run on benchmark branch
+      - benchmark
 
 concurrency:
   group: benchmark-${{ github.run_id }}
@@ -12,374 +12,258 @@ concurrency:
 permissions:
   contents: read
 
+# This is PostHog's actual ci-frontend.yml workflow duplicated to run on
+# both Depot runners (original) and GitHub-hosted runners (comparison).
+# No path filtering — always runs all jobs.
+
 jobs:
   # ==========================================================================
-  # BENCHMARK 1: Frontend install + typecheck on GitHub-hosted runner
+  # FRONTEND FORMATTING — PostHog's actual job
   # ==========================================================================
-  github-frontend:
-    name: "[GitHub] Frontend Install + Typecheck"
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  depot-frontend-format:
+    name: "[Depot] Frontend formatting"
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - name: Record start time
-        run: echo "START_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
       - uses: actions/checkout@v6
 
-      - name: Record checkout done
-        run: echo "CHECKOUT_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+      - name: Fix node-gyp permissions
+        run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: 24.13.0
           cache: 'pnpm'
 
-      - name: Record node setup done
-        run: echo "NODE_SETUP_TIME=$(date +%s%N)" >> $GITHUB_ENV
+      - name: Install package.json dependencies with pnpm
+        run: |
+          pnpm --filter=@posthog/playwright... install --frozen-lockfile
+          bin/turbo --filter=@posthog/frontend prepare
 
-      - name: Install dependencies
-        run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+      - name: Check formatting with oxfmt
+        run: pnpm run format:frontend:check
 
-      - name: Record install done
-        run: echo "INSTALL_TIME=$(date +%s%N)" >> $GITHUB_ENV
+      - name: Lint with Stylelint
+        run: pnpm run lint:css
 
-      - name: Prepare frontend
-        run: bin/turbo --filter=@posthog/frontend prepare
+      - name: Lint with Oxlint
+        run: pnpm exec oxlint --quiet
 
-      - name: Record prepare done
-        run: echo "PREPARE_TIME=$(date +%s%N)" >> $GITHUB_ENV
+      - name: Check markdown formatting with oxfmt
+        run: pnpm exec oxfmt --check "**/*.{md,mdx}"
 
-      - name: TypeScript check
-        run: pnpm --filter=@posthog/frontend exec tsc --noEmit
+      - name: Check YAML formatting with oxfmt
+        run: pnpm exec oxfmt --check "**/*.{yaml,yml}"
+
+      - name: Lint markdown files
+        run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
+
+  github-frontend-format:
+    name: "[GitHub] Frontend formatting"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+      - name: Fix node-gyp permissions
+        run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 24.13.0
+          cache: 'pnpm'
+
+      - name: Install package.json dependencies with pnpm
+        run: |
+          pnpm --filter=@posthog/playwright... install --frozen-lockfile
+          bin/turbo --filter=@posthog/frontend prepare
+
+      - name: Check formatting with oxfmt
+        run: pnpm run format:frontend:check
+
+      - name: Lint with Stylelint
+        run: pnpm run lint:css
+
+      - name: Lint with Oxlint
+        run: pnpm exec oxlint --quiet
+
+      - name: Check markdown formatting with oxfmt
+        run: pnpm exec oxfmt --check "**/*.{md,mdx}"
+
+      - name: Check YAML formatting with oxfmt
+        run: pnpm exec oxfmt --check "**/*.{yaml,yml}"
+
+      - name: Lint markdown files
+        run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
+
+  # ==========================================================================
+  # FRONTEND TYPECHECKING — PostHog's actual job
+  # ==========================================================================
+  depot-frontend-typescript:
+    name: "[Depot] Frontend typechecking"
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+      - name: Fix node-gyp permissions
+        run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 24.13.0
+          cache: 'pnpm'
+
+      - name: Install package.json dependencies with pnpm
+        run: |
+          pnpm --filter=@posthog/playwright... install --no-frozen-lockfile
+          bin/turbo --filter=@posthog/frontend prepare
+
+      - name: Build products
+        run: pnpm --filter=@posthog/frontend build:products
+
+      - name: Kea typegen
+        run: pnpm --filter=@posthog/frontend typegen:write
+
+      - name: Re-format files after typegen
+        run: pnpm exec oxfmt "./{products,frontend/src}/**/*.{ts,tsx}"
+
+      - name: Run typescript with strict
+        run: pnpm --filter=@posthog/frontend typescript:check
+        env:
+          NODE_OPTIONS: --max-old-space-size=16384
+
+      - name: Check if schema.json and validators.js are up to date
+        run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
         continue-on-error: true
 
-      - name: Record typecheck done
-        run: echo "TYPECHECK_TIME=$(date +%s%N)" >> $GITHUB_ENV
+      - name: Check if mobile replay schema.json is up to date
+        run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
+        continue-on-error: true
 
-      - name: Print timing summary
+      - name: Validate SetupTaskId completions
+        run: node bin/validate-setup-tasks.mjs
+        continue-on-error: true
+
+  github-frontend-typescript:
+    name: "[GitHub] Frontend typechecking"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+      - name: Fix node-gyp permissions
+        run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 24.13.0
+          cache: 'pnpm'
+
+      - name: Install package.json dependencies with pnpm
         run: |
-          echo "=========================================="
-          echo "  BENCHMARK: GitHub-hosted runner"
-          echo "=========================================="
-          start=${{ env.START_TIME }}
-          checkout=${{ env.CHECKOUT_TIME }}
-          node_setup=${{ env.NODE_SETUP_TIME }}
-          install=${{ env.INSTALL_TIME }}
-          prepare=${{ env.PREPARE_TIME }}
-          typecheck=${{ env.TYPECHECK_TIME }}
+          pnpm --filter=@posthog/playwright... install --no-frozen-lockfile
+          bin/turbo --filter=@posthog/frontend prepare
 
-          echo "Checkout:     $(( (checkout - start) / 1000000 ))ms"
-          echo "Node setup:   $(( (node_setup - checkout) / 1000000 ))ms"
-          echo "pnpm install: $(( (install - node_setup) / 1000000 ))ms"
-          echo "Turbo prepare:$(( (prepare - install) / 1000000 ))ms"
-          echo "TypeScript:   $(( (typecheck - prepare) / 1000000 ))ms"
-          echo "------------------------------------------"
-          echo "TOTAL:        $(( (typecheck - start) / 1000000 ))ms"
-          echo "=========================================="
+      - name: Build products
+        run: pnpm --filter=@posthog/frontend build:products
+
+      - name: Kea typegen
+        run: pnpm --filter=@posthog/frontend typegen:write
+
+      - name: Re-format files after typegen
+        run: pnpm exec oxfmt "./{products,frontend/src}/**/*.{ts,tsx}"
+
+      - name: Run typescript with strict
+        run: pnpm --filter=@posthog/frontend typescript:check
+        env:
+          NODE_OPTIONS: --max-old-space-size=16384
+
+      - name: Check if schema.json and validators.js are up to date
+        run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+        continue-on-error: true
+
+      - name: Check if mobile replay schema.json is up to date
+        run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
+        continue-on-error: true
+
+      - name: Validate SetupTaskId completions
+        run: node bin/validate-setup-tasks.mjs
+        continue-on-error: true
 
   # ==========================================================================
-  # BENCHMARK 2: Frontend install + typecheck on Depot runner (2 vCPU)
+  # JEST TESTS — PostHog's actual job (single shard for benchmark)
   # ==========================================================================
-  depot-frontend-2cpu:
-    name: "[Depot 2cpu] Frontend Install + Typecheck"
+  depot-jest:
+    name: "[Depot] Jest test (FOSS - 1)"
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Record start time
-        run: echo "START_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
       - uses: actions/checkout@v6
 
-      - name: Record checkout done
-        run: echo "CHECKOUT_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+      - name: Fix node-gyp permissions
+        run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: 24.13.0
-          cache: 'pnpm'
+          cache: pnpm
 
-      - name: Record node setup done
-        run: echo "NODE_SETUP_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Install dependencies
+      - name: Install package.json dependencies with pnpm
         run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
-      - name: Record install done
-        run: echo "INSTALL_TIME=$(date +%s%N)" >> $GITHUB_ENV
+      - name: Test with Jest
+        run: bin/turbo run test --filter=@posthog/frontend -- --runInBand
+        env:
+          NODE_OPTIONS: --max-old-space-size=16384
+          SHARD_INDEX: 1
+          SHARD_COUNT: 3
 
-      - name: Prepare frontend
-        run: bin/turbo --filter=@posthog/frontend prepare
-
-      - name: Record prepare done
-        run: echo "PREPARE_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: TypeScript check
-        run: pnpm --filter=@posthog/frontend exec tsc --noEmit
-        continue-on-error: true
-
-      - name: Record typecheck done
-        run: echo "TYPECHECK_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Print timing summary
-        run: |
-          echo "=========================================="
-          echo "  BENCHMARK: Depot runner (2 vCPU / 8GB)"
-          echo "=========================================="
-          start=${{ env.START_TIME }}
-          checkout=${{ env.CHECKOUT_TIME }}
-          node_setup=${{ env.NODE_SETUP_TIME }}
-          install=${{ env.INSTALL_TIME }}
-          prepare=${{ env.PREPARE_TIME }}
-          typecheck=${{ env.TYPECHECK_TIME }}
-
-          echo "Checkout:     $(( (checkout - start) / 1000000 ))ms"
-          echo "Node setup:   $(( (node_setup - checkout) / 1000000 ))ms"
-          echo "pnpm install: $(( (install - node_setup) / 1000000 ))ms"
-          echo "Turbo prepare:$(( (prepare - install) / 1000000 ))ms"
-          echo "TypeScript:   $(( (typecheck - prepare) / 1000000 ))ms"
-          echo "------------------------------------------"
-          echo "TOTAL:        $(( (typecheck - start) / 1000000 ))ms"
-          echo "=========================================="
-
-  # ==========================================================================
-  # BENCHMARK 3: Frontend install + typecheck on Depot runner (4 vCPU)
-  # ==========================================================================
-  depot-frontend-4cpu:
-    name: "[Depot 4cpu] Frontend Install + Typecheck"
-    runs-on: depot-ubuntu-24.04-4
-    timeout-minutes: 30
-    steps:
-      - name: Record start time
-        run: echo "START_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - uses: actions/checkout@v6
-
-      - name: Record checkout done
-        run: echo "CHECKOUT_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.13.0
-          cache: 'pnpm'
-
-      - name: Record node setup done
-        run: echo "NODE_SETUP_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Install dependencies
-        run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
-
-      - name: Record install done
-        run: echo "INSTALL_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Prepare frontend
-        run: bin/turbo --filter=@posthog/frontend prepare
-
-      - name: Record prepare done
-        run: echo "PREPARE_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: TypeScript check
-        run: pnpm --filter=@posthog/frontend exec tsc --noEmit
-        continue-on-error: true
-
-      - name: Record typecheck done
-        run: echo "TYPECHECK_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Print timing summary
-        run: |
-          echo "=========================================="
-          echo "  BENCHMARK: Depot runner (4 vCPU / 16GB)"
-          echo "=========================================="
-          start=${{ env.START_TIME }}
-          checkout=${{ env.CHECKOUT_TIME }}
-          node_setup=${{ env.NODE_SETUP_TIME }}
-          install=${{ env.INSTALL_TIME }}
-          prepare=${{ env.PREPARE_TIME }}
-          typecheck=${{ env.TYPECHECK_TIME }}
-
-          echo "Checkout:     $(( (checkout - start) / 1000000 ))ms"
-          echo "Node setup:   $(( (node_setup - checkout) / 1000000 ))ms"
-          echo "pnpm install: $(( (install - node_setup) / 1000000 ))ms"
-          echo "Turbo prepare:$(( (prepare - install) / 1000000 ))ms"
-          echo "TypeScript:   $(( (typecheck - prepare) / 1000000 ))ms"
-          echo "------------------------------------------"
-          echo "TOTAL:        $(( (typecheck - start) / 1000000 ))ms"
-          echo "=========================================="
-
-  # ==========================================================================
-  # BENCHMARK 4: Frontend install + typecheck on Depot runner (8 vCPU)
-  # ==========================================================================
-  depot-frontend-8cpu:
-    name: "[Depot 8cpu] Frontend Install + Typecheck"
-    runs-on: depot-ubuntu-24.04-8
-    timeout-minutes: 30
-    steps:
-      - name: Record start time
-        run: echo "START_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - uses: actions/checkout@v6
-
-      - name: Record checkout done
-        run: echo "CHECKOUT_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.13.0
-          cache: 'pnpm'
-
-      - name: Record node setup done
-        run: echo "NODE_SETUP_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Install dependencies
-        run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
-
-      - name: Record install done
-        run: echo "INSTALL_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Prepare frontend
-        run: bin/turbo --filter=@posthog/frontend prepare
-
-      - name: Record prepare done
-        run: echo "PREPARE_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: TypeScript check
-        run: pnpm --filter=@posthog/frontend exec tsc --noEmit
-        continue-on-error: true
-
-      - name: Record typecheck done
-        run: echo "TYPECHECK_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Print timing summary
-        run: |
-          echo "=========================================="
-          echo "  BENCHMARK: Depot runner (8 vCPU / 32GB)"
-          echo "=========================================="
-          start=${{ env.START_TIME }}
-          checkout=${{ env.CHECKOUT_TIME }}
-          node_setup=${{ env.NODE_SETUP_TIME }}
-          install=${{ env.INSTALL_TIME }}
-          prepare=${{ env.PREPARE_TIME }}
-          typecheck=${{ env.TYPECHECK_TIME }}
-
-          echo "Checkout:     $(( (checkout - start) / 1000000 ))ms"
-          echo "Node setup:   $(( (node_setup - checkout) / 1000000 ))ms"
-          echo "pnpm install: $(( (install - node_setup) / 1000000 ))ms"
-          echo "Turbo prepare:$(( (prepare - install) / 1000000 ))ms"
-          echo "TypeScript:   $(( (typecheck - prepare) / 1000000 ))ms"
-          echo "------------------------------------------"
-          echo "TOTAL:        $(( (typecheck - start) / 1000000 ))ms"
-          echo "=========================================="
-
-  # ==========================================================================
-  # BENCHMARK 5: Frontend lint (lighter task) - GitHub vs Depot
-  # ==========================================================================
-  github-lint:
-    name: "[GitHub] Frontend Lint"
+  github-jest:
+    name: "[GitHub] Jest test (FOSS - 1)"
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - name: Record start time
-        run: echo "START_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
       - uses: actions/checkout@v6
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+      - name: Fix node-gyp permissions
+        run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: 24.13.0
-          cache: 'pnpm'
+          cache: pnpm
 
-      - name: Install dependencies
+      - name: Install package.json dependencies with pnpm
         run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
-      - name: Record install done
-        run: echo "INSTALL_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Prepare
-        run: bin/turbo --filter=@posthog/frontend prepare
-
-      - name: Oxlint
-        run: pnpm exec oxlint --quiet
-        continue-on-error: true
-
-      - name: Record lint done
-        run: echo "LINT_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Print timing summary
-        run: |
-          echo "=========================================="
-          echo "  BENCHMARK: GitHub runner - Lint"
-          echo "=========================================="
-          start=${{ env.START_TIME }}
-          install=${{ env.INSTALL_TIME }}
-          lint=${{ env.LINT_TIME }}
-          echo "Setup+Install: $(( (install - start) / 1000000 ))ms"
-          echo "Lint:          $(( (lint - install) / 1000000 ))ms"
-          echo "TOTAL:         $(( (lint - start) / 1000000 ))ms"
-          echo "=========================================="
-
-  depot-lint:
-    name: "[Depot 4cpu] Frontend Lint"
-    runs-on: depot-ubuntu-24.04-4
-    timeout-minutes: 20
-    steps:
-      - name: Record start time
-        run: echo "START_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - uses: actions/checkout@v6
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.13.0
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
-
-      - name: Record install done
-        run: echo "INSTALL_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Prepare
-        run: bin/turbo --filter=@posthog/frontend prepare
-
-      - name: Oxlint
-        run: pnpm exec oxlint --quiet
-        continue-on-error: true
-
-      - name: Record lint done
-        run: echo "LINT_TIME=$(date +%s%N)" >> $GITHUB_ENV
-
-      - name: Print timing summary
-        run: |
-          echo "=========================================="
-          echo "  BENCHMARK: Depot runner (4cpu) - Lint"
-          echo "=========================================="
-          start=${{ env.START_TIME }}
-          install=${{ env.INSTALL_TIME }}
-          lint=${{ env.LINT_TIME }}
-          echo "Setup+Install: $(( (install - start) / 1000000 ))ms"
-          echo "Lint:          $(( (lint - install) / 1000000 ))ms"
-          echo "TOTAL:         $(( (lint - start) / 1000000 ))ms"
-          echo "=========================================="
+      - name: Test with Jest
+        run: bin/turbo run test --filter=@posthog/frontend -- --runInBand
+        env:
+          NODE_OPTIONS: --max-old-space-size=16384
+          SHARD_INDEX: 1
+          SHARD_COUNT: 3
