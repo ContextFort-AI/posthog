@@ -1,3 +1,4 @@
+// benchmark: one file change test
 import './SidePanel.scss'
 
 import { useActions, useValues } from 'kea'
