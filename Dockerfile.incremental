@@ -347,3 +347,4 @@ RUN echo $COMMIT_HASH > /code/commit.txt
 # nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root
 USER root
 CMD ["./bin/docker"]
+
