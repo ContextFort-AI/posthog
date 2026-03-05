@@ -142,3 +142,4 @@ jobs:
           platforms: linux/amd64
           push: false
           build-args: COMMIT_HASH=${{ github.sha }}
+# benchmark trigger
