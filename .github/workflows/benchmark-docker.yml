@@ -1,4 +1,4 @@
-name: Docker Build Benchmark v2
+name: Docker Build Benchmark
 
 on:
   workflow_dispatch:
