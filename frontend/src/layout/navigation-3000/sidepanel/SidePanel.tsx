@@ -1,4 +1,4 @@
-// benchmark: second file change test for incremental vs original comparison
+// benchmark: clean depot test
 import './SidePanel.scss'
 
 import { useActions, useValues } from 'kea'
