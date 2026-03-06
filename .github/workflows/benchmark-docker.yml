@@ -1,4 +1,4 @@
-name: Docker Build Benchmark
+name: Runner Benchmark (Depot vs GitHub)
 
 on:
   workflow_dispatch:
@@ -7,40 +7,216 @@ on:
       - benchmark
 
 concurrency:
-  group: docker-benchmark-${{ github.run_id }}
+  group: runner-benchmark-${{ github.run_id }}
 
 permissions:
   contents: read
-  id-token: write
 
-# Benchmark: PostHog's production Docker image build via Depot.
-# amd64 only, no image push — just measuring build time.
+# Benchmark: same backend CI setup on Depot vs GitHub runners.
+# No actual tests — just measuring setup/install time.
+
+env:
+  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+  REDIS_URL: 'redis://localhost'
+  CLICKHOUSE_HOST: 'localhost'
+  CLICKHOUSE_SECURE: 'False'
+  CLICKHOUSE_VERIFY: 'False'
+  UV_HTTP_TIMEOUT: 120
 
 jobs:
-  depot-build:
-    name: "[Depot] Docker build"
-    runs-on: depot-ubuntu-latest-4
-    timeout-minutes: 60
+  github-runner:
+    name: "[GitHub] Backend setup"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
-          sudo docker image prune -af
+      - name: Record start
+        run: echo "BENCH_START=$(date +%s)" >> $GITHUB_ENV
 
       - uses: actions/checkout@v6
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Start Docker services
+        run: |
+          START=$(date +%s%3N)
+          cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+          docker compose -f docker-compose.dev.yml up -d
+          END=$(date +%s%3N)
+          echo "⏱ Docker compose up: $((END - START))ms"
 
-      - name: Set up Depot CLI
-        uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
-
-      - name: Build image
-        uses: depot/build-push-action@9785b135c3c76c33db102e45be96a25ab55cd507 # v1.16.2
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
-          context: .
-          project: czwxxmv4gw
-          buildx-fallback: false
-          platforms: linux/amd64
-          push: false
-          build-args: COMMIT_HASH=${{ github.sha }}
+          python-version: 3.12.12
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b
+        with:
+          enable-cache: true
+
+      - name: Install SAML deps
+        run: |
+          START=$(date +%s%3N)
+          sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+          END=$(date +%s%3N)
+          echo "⏱ apt-get SAML deps: $((END - START))ms"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda
+
+      - name: Fix node-gyp permissions
+        run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+          cache: pnpm
+
+      - name: Install Node dependencies (pnpm)
+        run: |
+          START=$(date +%s%3N)
+          pnpm install --frozen-lockfile
+          END=$(date +%s%3N)
+          echo "⏱ pnpm install: $((END - START))ms"
+
+      - name: Install Python dependencies (uv)
+        run: |
+          START=$(date +%s%3N)
+          UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+          END=$(date +%s%3N)
+          echo "⏱ uv sync: $((END - START))ms"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+        with:
+          toolchain: stable
+
+      - name: Install sqlx-cli
+        run: |
+          START=$(date +%s%3N)
+          cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+          END=$(date +%s%3N)
+          echo "⏱ cargo install sqlx-cli: $((END - START))ms"
+
+      - name: Wait for Docker services
+        run: |
+          echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+          START=$(date +%s%3N)
+          bin/wait-for-docker
+          END=$(date +%s%3N)
+          echo "⏱ wait-for-docker: $((END - START))ms"
+
+      - name: Setup test files
+        run: |
+          mkdir -p frontend/dist
+          touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
+
+      - name: Run small pytest sample
+        run: |
+          START=$(date +%s%3N)
+          python -m pytest posthog/test/test_utils.py -x -q --no-header 2>&1 | tail -5
+          END=$(date +%s%3N)
+          echo "⏱ pytest sample: $((END - START))ms"
+
+      - name: Total time
+        run: |
+          END=$(date +%s)
+          echo "⏱ TOTAL: $((END - BENCH_START))s"
+
+  depot-runner:
+    name: "[Depot] Backend setup"
+    runs-on: depot-ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Record start
+        run: echo "BENCH_START=$(date +%s)" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v6
+
+      - name: Start Docker services
+        run: |
+          START=$(date +%s%3N)
+          cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+          docker compose -f docker-compose.dev.yml up -d
+          END=$(date +%s%3N)
+          echo "⏱ Docker compose up: $((END - START))ms"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: 3.12.12
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b
+        with:
+          enable-cache: true
+
+      - name: Install SAML deps
+        run: |
+          START=$(date +%s%3N)
+          sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+          END=$(date +%s%3N)
+          echo "⏱ apt-get SAML deps: $((END - START))ms"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda
+
+      - name: Fix node-gyp permissions
+        run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+          cache: pnpm
+
+      - name: Install Node dependencies (pnpm)
+        run: |
+          START=$(date +%s%3N)
+          pnpm install --frozen-lockfile
+          END=$(date +%s%3N)
+          echo "⏱ pnpm install: $((END - START))ms"
+
+      - name: Install Python dependencies (uv)
+        run: |
+          START=$(date +%s%3N)
+          UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+          END=$(date +%s%3N)
+          echo "⏱ uv sync: $((END - START))ms"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+        with:
+          toolchain: stable
+
+      - name: Install sqlx-cli
+        run: |
+          START=$(date +%s%3N)
+          cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+          END=$(date +%s%3N)
+          echo "⏱ cargo install sqlx-cli: $((END - START))ms"
+
+      - name: Wait for Docker services
+        run: |
+          echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+          START=$(date +%s%3N)
+          bin/wait-for-docker
+          END=$(date +%s%3N)
+          echo "⏱ wait-for-docker: $((END - START))ms"
+
+      - name: Setup test files
+        run: |
+          mkdir -p frontend/dist
+          touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
+
+      - name: Run small pytest sample
+        run: |
+          START=$(date +%s%3N)
+          python -m pytest posthog/test/test_utils.py -x -q --no-header 2>&1 | tail -5
+          END=$(date +%s%3N)
+          echo "⏱ pytest sample: $((END - START))ms"
+
+      - name: Total time
+        run: |
+          END=$(date +%s)
+          echo "⏱ TOTAL: $((END - BENCH_START))s"
